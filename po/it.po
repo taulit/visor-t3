@@ -1,0 +1,223 @@
+# Italian translations for visor-t3 package.
+# Copyright (C) 2026 THE visor-t3'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the visor-t3 package.
+# Automatically generated, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: visor-t3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-18 14:47+0100\n"
+"PO-Revision-Date: 2026-11-18 14:47+0100\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: it\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: build/module.js:58
+msgid "T3 Code"
+msgstr "T3 Code"
+
+#: build/module.js:62
+msgid "t3 Fix the failing test"
+msgstr "t3 Correggi il test che fallisce"
+
+#: build/module.js:109 build/module.js:385
+msgid "Untitled thread"
+msgstr "Thread senza titolo"
+
+#: build/module.js:114
+#, javascript-format
+msgid "Send to %s"
+msgstr "Invia a %s"
+
+#: build/module.js:123
+msgid "Start a new thread"
+msgstr "Avvia un nuovo thread"
+
+#: build/module.js:287
+#, javascript-format
+msgid "+ %d more"
+msgstr "+ %d altri"
+
+#: build/module.js:340
+msgid "Agent"
+msgstr "Agente"
+
+#: build/module.js:343
+#, javascript-format
+msgid "%s is waiting"
+msgstr "%s è in attesa"
+
+#: build/module.js:352
+msgid "Starting"
+msgstr "Avvio"
+
+#: build/module.js:355 build/module.js:356
+msgid "Working"
+msgstr "In esecuzione"
+
+#: build/module.js:359
+msgid "Answer this request in T3 Code"
+msgstr "Rispondi a questa richiesta in T3 Code"
+
+#: build/module.js:361
+msgid "Wants to run"
+msgstr "Vuole eseguire"
+
+#: build/module.js:363
+msgid "Wants to use a file"
+msgstr "Vuole usare un file"
+
+#: build/module.js:364
+msgid "Asks for permission"
+msgstr "Chiede il permesso"
+
+#: build/module.js:366
+msgid "Has a question"
+msgstr "Ha una domanda"
+
+#: build/module.js:368
+msgid "Done"
+msgstr "Fatto"
+
+#: build/module.js:370
+msgid "Failed"
+msgstr "Non riuscito"
+
+#: build/module.js:381
+msgid "Could not send"
+msgstr "Impossibile inviare"
+
+#: build/module.js:407 build/module.js:588
+msgid "Open in T3 Code"
+msgstr "Apri in T3 Code"
+
+#: build/module.js:419 build/module.js:511
+msgid "Deny"
+msgstr "Rifiuta"
+
+#: build/module.js:425 build/module.js:512
+msgid "Allow"
+msgstr "Consenti"
+
+#: build/module.js:435
+msgid "Answer"
+msgstr "Rispondi"
+
+#: build/module.js:522
+msgid "Has characters that cannot be shown. Open T3 Code to read it"
+msgstr ""
+"Contiene caratteri che non possono essere mostrati. Apri T3 Code per leggerlo"
+
+#: build/module.js:523
+msgid "Open T3 Code to read all of it"
+msgstr "Apri T3 Code per leggere tutto"
+
+#: build/module.js:561
+#, javascript-format
+msgid "Reply to %s"
+msgstr "Risposta a %s"
+
+#: build/module.js:561 build/module.js:562
+msgid "Reply"
+msgstr "Rispondi"
+
+#: build/module.js:577
+msgid "Stop"
+msgstr "Ferma"
+
+#: build/pairing-group.js:63
+msgid "This is not a pairing link"
+msgstr "Questo non è un link di abbinamento"
+
+#: build/pairing-group.js:65 build/pairing-group.js:206
+msgid "Use https for a server on another machine"
+msgstr "Usa https per un server su un’altra macchina"
+
+#: build/pairing-group.js:67
+msgid "The link is wrong or has expired"
+msgstr "Il link è errato o è scaduto"
+
+#: build/pairing-group.js:69
+msgid "This version of T3 Code does not fit Visor"
+msgstr "Questa versione di T3 Code non è compatibile con Visor"
+
+#: build/pairing-group.js:71
+msgid "The keyring is not available"
+msgstr "Il portachiavi non è disponibile"
+
+#: build/pairing-group.js:73
+msgid "The server cannot be reached"
+msgstr "Impossibile raggiungere il server"
+
+#: build/pairing-group.js:78
+msgid "Server"
+msgstr "Server"
+
+#: build/pairing-group.js:83
+msgid "Pairing link or code"
+msgstr "Link o codice di abbinamento"
+
+#: build/pairing-group.js:86
+msgid "Connect"
+msgstr "Connetti"
+
+#: build/pairing-group.js:176
+msgid "Connected"
+msgstr "Connesso"
+
+#: build/pairing-group.js:178
+msgid "Disconnect"
+msgstr "Disconnetti"
+
+#: build/pairing-group.js:193
+msgid "Server address"
+msgstr "Indirizzo del server"
+
+#: build/pairing-group.js:194
+msgid "Address, empty for this machine"
+msgstr "Indirizzo, vuoto per questa macchina"
+
+#: build/pairing-group.js:207
+msgid "This is not a server address"
+msgstr "Questo non è un indirizzo di server"
+
+#: build/pairing-group.js:228
+msgid ""
+"Create a pairing link in T3 Code under Settings → Sharing & access and paste "
+"it here."
+msgstr ""
+"Crea un link di abbinamento in T3 Code in Settings → Sharing & access e "
+"incollalo qui."
+
+#: build/pairing-group.js:231 build/pairing-group.js:232
+msgid "This machine"
+msgstr "Questa macchina"
+
+#: build/prefs.js:29
+msgid "General"
+msgstr "Generale"
+
+#: build/prefs.js:36
+msgid "Visor is not installed"
+msgstr "Visor non è installato"
+
+#: build/prefs.js:37
+msgid "This module needs Visor and does nothing without it."
+msgstr "Questo modulo ha bisogno di Visor e senza di esso non fa nulla."
+
+#: build/prefs.js:39
+msgid "Get Visor"
+msgstr "Ottieni Visor"
+
+#: build/prefs.js:44
+msgid "Behavior"
+msgstr "Comportamento"
+
+#: build/prefs.js:45
+msgid "Show briefly when an agent is waiting"
+msgstr "Mostra brevemente quando un agente è in attesa"

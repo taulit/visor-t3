@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.visor-t3" path="/org/gnome/shell/extensions/visor-t3/">
+    <key name="flash-on-waiting-agents" type="b">
+      <default>true</default>
+      <summary>Flash when an agent waits</summary>
+      <description>Briefly expand the notch of Visor when a T3 Code agent starts waiting for an approval.</description>
+    </key>
+    <key name="server-url" type="s">
+      <default>''</default>
+      <summary>T3 Code server</summary>
+      <description>Address of the T3 Code server, such as http://127.0.0.1:3773. Empty: the server running on this machine, found through its runtime file below ~/.t3.</description>
+    </key>
+    <key name="token-origin" type="s">
+      <default>''</default>
+      <summary>Origin of the T3 Code access token</summary>
+      <description>Address of the server the module is paired with, such as http://127.0.0.1:3773. Empty: not paired, T3 Code sessions are not shown. The access token itself is in the keyring and is sent to this server only.</description>
+    </key>
+    <key name="token-serial" type="i">
+      <default>0</default>
+      <summary>Changes of the T3 Code access token</summary>
+      <description>Counted up by the settings window whenever it stored or removed the access token in the keyring, so that the module reads it again.</description>
+    </key>
+  </schema>
+</schemalist>
