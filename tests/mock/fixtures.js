@@ -183,3 +183,16 @@ export const snapshotItem = threads => ({
     archivedThreads: [],
   },
 });
+
+/** What the server sends after the first snapshot: projects of resolved repositories, never threads. */
+export const enrichmentItem = () => ({
+  kind: 'snapshot',
+  snapshot: {
+    schemaVersion: 1,
+    snapshotSequence: 1,
+    projects: [project()],
+    threads: [],
+    archivedThreads: [],
+  },
+  resolvedRepositoryIdentityRoots: ['/home/user/project'],
+});

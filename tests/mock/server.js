@@ -42,6 +42,7 @@ import {
   descriptor,
   pendingRequest,
   snapshotItem,
+  enrichmentItem,
   thread,
 } from './fixtures.js';
 
@@ -143,6 +144,7 @@ function rpc(client, frame) {
     case 'orchestration.subscribeShell':
       client.shell = id;
       client.chunk(snapshotItem([...threads.values()]));
+      client.chunk(enrichmentItem());
       client.chunk({ kind: 'synchronized' });
       break;
     case 'orchestration.dispatchCommand':

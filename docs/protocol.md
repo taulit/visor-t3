@@ -95,6 +95,9 @@ Payload `{}` (plus `omitIdleSubagents` / `omitOlderSettled` only for servers tha
 `shellThreadFamilies` / `shellOlderSettled`). Stream items (`OrchestrationV2ShellStreamItem`):
 
 - `{kind:"snapshot", snapshot:{projects:[{id,title,…}], threads:[ThreadShell], archivedThreads:[…]}}`
+- The same item with `resolvedRepositoryIdentityRoots:[…]` is not the whole state: it follows the first
+  snapshot and every identified repository, carries the projects of those roots and empty `threads`. Visor
+  takes its projects and keeps its threads (`mergeShellSnapshotProjects` in `packages/client-runtime`).
 - `{kind:"thread.updated", location:"active"|"archive", thread:ThreadShell}`, `{kind:"thread.removed", threadId}`
 - `{kind:"project.updated", project}`, `{kind:"project.removed", projectId}`, `{kind:"synchronized"}`
 

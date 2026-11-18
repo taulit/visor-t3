@@ -519,12 +519,20 @@ function setProject(state: ShellState, value: unknown): boolean {
   if (!isObject(value)) return false;
   const projectId = id(value.id);
   if (!projectId) return false;
-  state.projects.set(projectId, clean(value.title, MAX_PROJECT));
+  const title = clean(value.title, MAX_PROJECT);
+  if (state.projects.get(projectId) === title) return false;
+  state.projects.set(projectId, title);
   return true;
 }
 
-/** True for the item that carries the whole state, the first of a shell stream. */
-export const isSnapshot = (item: unknown): boolean => isObject(item) && item.kind === 'snapshot';
+/**
+ * True for the item that carries the whole state, the first of a shell stream.
+ * A snapshot that names the repository roots it resolved is not one: the server
+ * sends it right after the first and whenever a repository is identified, with
+ * the projects of those roots and no threads at all.
+ */
+export const isSnapshot = (item: unknown): boolean =>
+  isObject(item) && item.kind === 'snapshot' && item.resolvedRepositoryIdentityRoots === undefined;
 
 /** Applies one item of the shell stream. Returns whether the state changed. */
 export function applyShellItem(state: ShellState, item: unknown): boolean {
@@ -532,10 +540,16 @@ export function applyShellItem(state: ShellState, item: unknown): boolean {
   switch (item.kind) {
     case 'snapshot': {
       const snapshot = isObject(item.snapshot) ? item.snapshot : {};
+      const projects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
+      if (!isSnapshot(item)) {
+        // Only what it says about its projects counts; the threads stay as they are.
+        let changed = false;
+        for (const project of projects) changed = setProject(state, project) || changed;
+        return changed;
+      }
       state.projects.clear();
       state.threads.clear();
-      for (const project of Array.isArray(snapshot.projects) ? snapshot.projects : [])
-        setProject(state, project);
+      for (const project of projects) setProject(state, project);
       for (const value of Array.isArray(snapshot.threads) ? snapshot.threads : []) {
         const thread = decodeThread(value);
         if (thread) state.threads.set(thread.id, thread);

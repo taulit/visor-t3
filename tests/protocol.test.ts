@@ -4,6 +4,7 @@ import {
   PROTOCOL_VERSION,
   ackFrame,
   applyShellItem,
+  isSnapshot,
   MAX_COMMAND,
   PREVIEW_CHARS,
   approvalPrompt,
@@ -273,6 +274,18 @@ describe('sessions', () => {
     });
     expect(sessionsOf(state, NOW)[0]!.project).toBe('renamed');
     expect(applyShellItem(state, { kind: 'synchronized' })).toBe(false);
+  });
+
+  it('keeps the threads when a snapshot of resolved repositories follows', () => {
+    const state = emptyShell();
+    applyShellItem(state, fixtures.snapshotItem([fixtures.running('a', NOW)]));
+    const enrichment = {
+      ...fixtures.enrichmentItem(),
+      snapshot: { projects: [fixtures.project({ title: 'renamed' })], threads: [] },
+    };
+    expect(isSnapshot(enrichment)).toBe(false);
+    expect(applyShellItem(state, enrichment)).toBe(true);
+    expect(sessionsOf(state, NOW).map(s => [s.id, s.project])).toEqual([['a', 'renamed']]);
   });
 
   it('does not show a settled thread, an auth refresh or a side chat', () => {
