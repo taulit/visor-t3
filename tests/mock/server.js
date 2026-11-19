@@ -5,6 +5,7 @@
 //
 // Usage: node tests/mock/server.js [--port N] [--token T] [--fixture NAME]
 //                                     [--protocol N] [--home DIR] [--pairing CODE]
+//                                     [--environment ID] [--label NAME]
 //   --port      port on 127.0.0.1 (default 3799)
 //   --token     the bearer token it accepts (default "mock-token")
 //   --fixture   a set of fixtures.js (default "default")
@@ -13,6 +14,8 @@
 //               token (default "mock-pairing"); it works once, as on the real server
 //   --home      writes <DIR>/userdata/server-runtime.json while it runs, as
 //               the real server does below ~/.t3
+//   --environment, --label  the environment id and the name of the machine its
+//               descriptor reports, so that a second mock can be another machine
 //
 // Test controls, plain HTTP on the same port:
 //   GET  /__mock/actions        what clients did: [{type, threadId, …}]
@@ -55,6 +58,8 @@ const port = Number(option('port', '3799'));
 const token = option('token', 'mock-token');
 const protocol = Number(option('protocol', '2'));
 const home = option('home', '');
+const environmentId = option('environment', undefined);
+const label = option('label', undefined);
 const pairingCodes = new Set([option('pairing', 'mock-pairing')]);
 const pairings = [];
 
@@ -303,7 +308,8 @@ const server = createServer(async (request, response) => {
       request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     });
 
-  if (url.pathname === '/.well-known/t3/environment') return json(200, descriptor(protocol));
+  if (url.pathname === '/.well-known/t3/environment')
+    return json(200, descriptor(protocol, environmentId, label));
   if (url.pathname === '/oauth/token' && request.method === 'POST') {
     exchanges++;
     const form = new URLSearchParams(await body());

@@ -1,14 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
-  tokenFits,
-  isInsecurePairing,
-  DEFAULT_ORIGIN,
+  LEGACY_SERVER_KEY,
+  LEGACY_TOKEN_ORIGIN_KEY,
+  MAX_SERVERS,
+  SERVERS_KEY,
+  carryOverPairing,
+  cliPairingArgs,
   decodeAccessToken,
+  decodeCliPairing,
   exchangeError,
-  originToStore,
+  isInsecurePairing,
   parsePairing,
+  serverList,
   tokenRequestBody,
   tokenUrl,
+  withServer,
+  withoutServer,
 } from '../src/pairing.js';
 
 describe('parsePairing', () => {
@@ -39,6 +46,7 @@ describe('parsePairing', () => {
     expect(isInsecurePairing('HTTP://192.168.1.5:3773/pair#token=k9')).toBe(true);
     expect(isInsecurePairing('https://t3.example.org/pair#token=k9')).toBe(false);
     expect(isInsecurePairing('http://127.0.0.1:3773/pair#token=k9')).toBe(false);
+    expect(isInsecurePairing('http://100.87.29.32:3773/pair#token=k9')).toBe(false);
     expect(isInsecurePairing('k9')).toBe(false);
     expect(isInsecurePairing(null)).toBe(false);
   });
@@ -91,28 +99,122 @@ describe('parsePairing', () => {
   });
 });
 
-describe('originToStore', () => {
-  it('stores nothing for the local server', () => {
-    expect(originToStore(DEFAULT_ORIGIN, null)).toBe('');
-    expect(originToStore('http://127.0.0.1:4000', 'http://127.0.0.1:4000')).toBe('');
+describe('the list of servers', () => {
+  it('keeps addresses a token may go to, each once, in order', () => {
+    expect(
+      serverList([
+        'http://127.0.0.1:3773/',
+        'http://100.87.29.32:3773',
+        'http://127.0.0.1:3773',
+        'http://192.168.1.5:3773',
+        'not an address',
+        42,
+        'https://t3.example.org',
+      ]),
+    ).toEqual(['http://127.0.0.1:3773', 'http://100.87.29.32:3773', 'https://t3.example.org']);
   });
 
-  it('stores any other origin', () => {
-    expect(originToStore('https://t3.example.org', null)).toBe('https://t3.example.org');
-    expect(originToStore(DEFAULT_ORIGIN, 'http://127.0.0.1:4000')).toBe(DEFAULT_ORIGIN);
+  it('takes at most MAX_SERVERS', () => {
+    const many = Array.from({ length: MAX_SERVERS + 3 }, (_, i) => `http://127.0.0.1:${4000 + i}`);
+    expect(serverList(many)).toHaveLength(MAX_SERVERS);
+  });
+
+  it('adds a server last and a known one not again, and removes one', () => {
+    const list = ['http://127.0.0.1:3773'];
+    expect(withServer(list, 'http://100.87.29.32:3773')).toEqual([
+      'http://127.0.0.1:3773',
+      'http://100.87.29.32:3773',
+    ]);
+    expect(withServer(list, 'http://127.0.0.1:3773')).toEqual(list);
+    expect(withServer(list, 'http://192.168.1.5:3773')).toEqual(list);
+    expect(withoutServer(['a', 'b', 'c'], 'b')).toEqual(['a', 'c']);
   });
 });
 
-describe('tokenFits', () => {
-  it('sends a token only to the origin it was issued for', () => {
-    expect(tokenFits('http://127.0.0.1:3773', 'http://127.0.0.1:3773')).toBe(true);
-    expect(tokenFits('http://127.0.0.1:3773', 'http://127.0.0.1:3774')).toBe(false);
-    expect(tokenFits('http://127.0.0.1:3773', 'https://127.0.0.1:3773')).toBe(false);
-    expect(tokenFits('https://t3.example.org', 'https://evil.example.org')).toBe(false);
-    // A token from before the origin was stored goes nowhere.
-    expect(tokenFits('', 'http://127.0.0.1:3773')).toBe(false);
-    expect(tokenFits('', '')).toBe(false);
-    expect(tokenFits('http://127.0.0.1:3773', null)).toBe(false);
+describe('carrying the pairing of one server over', () => {
+  const settings = (values: Record<string, string | string[]>) => ({
+    values,
+    get_string: (key: string) => values[key] as string,
+    set_string: (key: string, value: string) => ((values[key] = value), true),
+    get_strv: (key: string) => values[key] as string[],
+    set_strv: (key: string, value: string[]) => ((values[key] = value), true),
+  });
+
+  it('moves the paired origin into the list and empties the old keys', () => {
+    const local = settings({
+      [SERVERS_KEY]: [],
+      [LEGACY_SERVER_KEY]: '',
+      [LEGACY_TOKEN_ORIGIN_KEY]: 'http://127.0.0.1:3773',
+    });
+    carryOverPairing(local);
+    expect(local.values).toEqual({
+      [SERVERS_KEY]: ['http://127.0.0.1:3773'],
+      [LEGACY_SERVER_KEY]: '',
+      [LEGACY_TOKEN_ORIGIN_KEY]: '',
+    });
+    const remote = settings({
+      [SERVERS_KEY]: ['http://127.0.0.1:3773'],
+      [LEGACY_SERVER_KEY]: 'https://t3.example.org',
+      [LEGACY_TOKEN_ORIGIN_KEY]: 'https://t3.example.org',
+    });
+    carryOverPairing(remote);
+    expect(remote.values[SERVERS_KEY]).toEqual(['http://127.0.0.1:3773', 'https://t3.example.org']);
+  });
+
+  it('drops an address nothing was paired with, and does nothing a second time', () => {
+    const address = settings({
+      [SERVERS_KEY]: [],
+      [LEGACY_SERVER_KEY]: 'https://t3.example.org',
+      [LEGACY_TOKEN_ORIGIN_KEY]: '',
+    });
+    carryOverPairing(address);
+    expect(address.values).toEqual({
+      [SERVERS_KEY]: [],
+      [LEGACY_SERVER_KEY]: '',
+      [LEGACY_TOKEN_ORIGIN_KEY]: '',
+    });
+    const done = settings({
+      [SERVERS_KEY]: ['http://127.0.0.1:3773'],
+      [LEGACY_SERVER_KEY]: '',
+      [LEGACY_TOKEN_ORIGIN_KEY]: '',
+    });
+    carryOverPairing(done);
+    expect(done.values[SERVERS_KEY]).toEqual(['http://127.0.0.1:3773']);
+  });
+});
+
+describe('the command line of T3 Code', () => {
+  it('asks for a short-lived code with the two scopes Visor needs', () => {
+    expect(cliPairingArgs('Visor (anton)')).toEqual([
+      'auth',
+      'pairing',
+      'create',
+      '--json',
+      '--ttl',
+      '2m',
+      '--scope',
+      'orchestration:read',
+      '--scope',
+      'orchestration:operate',
+      '--label',
+      'Visor (anton)',
+    ]);
+  });
+
+  it('reads the code of its answer', () => {
+    const answer = {
+      id: 'd34cb2b6-0355-4ad0-b024-0d77599c2647',
+      credential: 'EU76KMRC2QHF',
+      label: 'Visor (anton)',
+      scopes: ['orchestration:read', 'orchestration:operate'],
+      expiresAt: '2026-11-19T10:31:35.108Z',
+      pairUrl: 'http://127.0.0.1:3773/pair#token=EU76KMRC2QHF',
+    };
+    expect(decodeCliPairing(JSON.stringify(answer))).toBe('EU76KMRC2QHF');
+    expect(decodeCliPairing('Issued pairing credential')).toBeNull();
+    expect(decodeCliPairing('{"credential":"has spaces"}')).toBeNull();
+    expect(decodeCliPairing('{"credential":42}')).toBeNull();
+    expect(decodeCliPairing('null')).toBeNull();
   });
 });
 

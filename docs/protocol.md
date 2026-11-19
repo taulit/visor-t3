@@ -1,7 +1,8 @@
 # T3 Code protocol, as far as the module uses it
 
 Read from the local checkout `~/development/t3code` at commit `afe7e876` (2026-11-07, a fork of
-[pingdotgg/t3code](https://github.com/pingdotgg/t3code), MIT). Paths below are relative to that repository.
+[pingdotgg/t3code](https://github.com/pingdotgg/t3code), MIT); what is about several machines (§2a)
+from upstream `main` at `2f577fa3` (2026-11-19). Paths below are relative to that repository.
 The only request sent to a real server while writing this was the public
 `GET /.well-known/t3/environment`; everything else is from the source and runs against `tests/mock/`.
 
@@ -13,8 +14,9 @@ The only request sent to a real server while writing this was the public
   `<base>/dev/` instead of `userdata/`.
 - The file is one JSON object: `{"version":1,"pid":…,"port":3773,"origin":"http://127.0.0.1:3773",…}`.
   Visor uses `origin`. The default port is 3773 (`DEFAULT_PORT`).
-- Visor: the setting `server-url` wins when set; otherwise `origin` of that file. No file means no
-  server.
+- Visor connects to the origins in the setting `servers` (§2a), not to what this file says; it watches
+  the file to reconnect at once when the local server starts. The settings window reads `origin` to
+  know which server a bare code or Connect next to "This machine" pairs with.
 
 ## 2. Connecting and authenticating
 
@@ -39,20 +41,23 @@ The environment issues its own sessions (`docs/internals/environment-auth.md`,
    revoked.
 4. **Socket**: `ws://<host>/ws?orchestrationProtocol=2&wsTicket=<ticket>` (`apps/server/src/ws.ts`).
 
-The module does step 1, 3 and 4. Step 2 is done by the settings window (Modules → T3 Code,
-`src/pairing-group.ts`; what both sides share is in `src/pairing.ts` and `keyring.ts`): it takes the
-pairing link or the bare code, checks the descriptor, exchanges the code, stores the token in the keyring
-and writes the origin to `server-url` when it is not the local server. The token endpoint answers a
+The module does step 1, 3 and 4, once per paired server. Step 2 is done by the settings window
+(Modules → T3 Code, `src/pairing-group.ts`; what both sides share is in `src/pairing.ts` and
+`keyring.ts`): it takes the pairing link or the bare code, checks the descriptor, exchanges the code,
+stores the token in the keyring and adds the origin to `servers`. The session T3 Code lists under
+Sharing & access is named after the label of the pairing code, not after `client_label`. The token endpoint answers a
 wrong, used or expired code with 401 (`EnvironmentAuthInvalidError`) and a malformed request with 400. A
 401 or 403 on the ticket request means the token is no good: the module logs one line and asks again only
 when the pairing or the address changes.
 
 **Where the token is kept.** In the keyring of the user, through libsecret (`gi://Secret`, async calls
-only): one item of the schema `io.github.taulit.Visor.T3` with the attribute `origin`, in the default
-collection. It is not in GSettings, so not in dconf, its dumps and backups. GSettings has only what is no
-secret: `token-origin`, the origin Visor is paired with (empty: not paired, the keyring is not asked at
-all), and `token-serial`, a counter the settings window raises whenever it stored or removed the token;
-the module in the shell, another process, watches both and reads the token again without a restart.
+only): one item per server of the schema `io.github.taulit.Visor.T3` with the attribute `origin`, in the
+default collection. It is not in GSettings, so not in dconf, its dumps and backups. GSettings has only
+what is no secret: `servers`, the origins Visor is paired with (empty: not paired, the keyring is not
+asked at all), and `token-serial`, a counter the settings window raises whenever it stored or removed a
+token. The module in the shell, another process, watches both: a new origin gets a client, a removed
+one loses it, and on a new count every client reads its token again and starts over only when it
+changed.
 Disconnect removes the item; disabling the extension does not. The schema name is the one the module
 had while it was part of Visor, so a token stored then is found and replaced by the next pairing.
 
@@ -62,16 +67,54 @@ as long as the shell runs, so a locked keyring prompts once and not at every unl
 settings window asks the keyring before it sends the pairing code and shows "The keyring is not available"
 instead, so the code, which is good once, is not used up.
 
-**Where the token goes.** The module sends the token to the origin in `token-origin` only: with
-another address in `server-url` (or another local server in the runtime file) it stays disconnected
-until it is paired again, and changing the address in the settings to another origin forgets the token.
-Plain http is taken for this machine only (`localhost`, `127.0.0.0/8`, `[::1]`); any other server needs
-https. None of the requests that carry the pairing code, the token or the ticket follows a redirect.
+**Where the token goes.** Each token is stored for the origin that issued it and is sent to that
+origin only. Plain http is taken for this machine (`localhost`, `127.0.0.0/8`, `[::1]`) and for
+Tailscale addresses (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), whose traffic WireGuard encrypts; T3 Code
+itself offers such an address for pairing (`t3 pair`, `startupAccess.ts`). Any other server needs https.
+None of the requests that carry the pairing code, the token or the ticket follows a redirect.
 
 **Revoking.** `POST /api/auth/clients/revoke` (`{sessionId}`) needs the scope `access:write`, which Visor
 does not ask for, and refuses the session that calls it (`current_session_revoke_not_allowed`, 403). A
 client cannot end its own session, so Disconnect only forgets the token; the session stays listed in
 T3 Code under Settings → Sharing & access until it is revoked there or expires.
+
+## 2a. Several machines
+
+The sessions of one machine live on its own server: a project and its threads belong to one
+environment (`docs/internals/remote.md`). The T3 Code app shows other machines because the client
+connects to each of them, with credentials of its own kept in its connection catalog
+(`apps/desktop/src/app/DesktopConnectionCatalogStore.ts`, encrypted with Electron's safe storage).
+A server knows nothing of the machines its app knows. Its **peer links** (`apps/server/src/peer/`,
+`t3 environment link|list`) are not that either: they sign one server in to another's `/mcp` so that
+agents can work there, they are behind the "Linked environments" beta, and they forward MCP tool
+calls, not the shell stream.
+
+So Visor does what a client does: it pairs with every server itself and keeps one connection per
+server.
+
+- **Settings.** `servers` (`as`) lists the origins, in the order they were paired, at most eight.
+  The token of each is in the keyring under its origin. The keys of 0.1, `server-url` and
+  `token-origin`, are carried over into `servers` once when the module or the settings window starts,
+  and emptied then (`carryOverPairing`).
+- **One list.** `sessionsOfAll` merges the shells of all servers with the order of `sessionsOf`.
+  Thread and request ids are the server's, so the module keys what it remembers by
+  `<origin> <id>`. A row keeps `t3:<thread id>` as its id unless two servers show the same thread id.
+  Two origins that report the same `environmentId` are one machine: only the first shows.
+- **The machine of a row.** A server that is not this machine (not a loopback origin) puts the
+  `label` of its descriptor (its host name, as T3 Code reports it) in front of the subtitle.
+- **Opening a thread** uses `t3code://threads/<environmentId>/<threadId>`, which the desktop app
+  resolves to the machine as long as the app knows it.
+- **Pairing this machine without a link.** `t3 auth pairing create --json --ttl 2m --scope
+orchestration:read --scope orchestration:operate --label "Visor (<host>)"` prints
+  `{id, credential, label, scopes, expiresAt, pairUrl?}`; the settings window exchanges `credential`
+  as in step 2. The command is `$T3CODE_HOME/bin/t3` (default `~/.t3/bin/t3`, where the desktop app
+  installs it), else `t3` on the `PATH`.
+- **A link for another machine** comes from Settings → Sharing & access there, or from
+  `t3 auth pairing create … --base-url http://<address>:3773`, which prints `pairUrl`
+  (`<base-url>/pair#token=<code>`). `t3 pair --tailscale` publishes the server over Tailscale Serve
+  and pairs through its https address instead.
+- **T3 Connect**, the relay, is not supported: its tokens last an hour and the client renews them
+  (`docs/internals/connection-runtime.md`), which the module does not do.
 
 ## 3. Messages
 

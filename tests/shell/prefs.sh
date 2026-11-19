@@ -4,7 +4,9 @@
 # token in the keyring (of the sandbox, see scripts/nested.sh) and nowhere
 # else, the module in the shell connects without a restart and shows the
 # sessions, Disconnect removes it, a token the server refuses is asked for
-# once and not again, and a bare code pairs anew. Then once more in a sandbox
+# once and not again, a bare code pairs anew, Connect next to "This machine"
+# pairs through the command line of T3 Code (a stand-in below ~/.t3/bin), and
+# a second server shows next to the first and is disconnected on its own. Then once more in a sandbox
 # without a keyring: the window says so and keeps the code, the module logs
 # one line, and connects once a keyring appears on the bus. And once with the keyring locked: the shell asks for its password
 # before the code is spent, for as long as the user needs, a dismissed prompt
@@ -18,7 +20,7 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # Nothing of these may ever be written anywhere.
-secrets='first-code-123|second-code-456|wrong-code-789|mock-token|refused-token-abc'
+secrets='first-code-123|second-code-456|wrong-code-789|cli-code-321|mock-token|refused-token-abc'
 
 if [[ "${1:-}" != --inside ]]; then
     mkdir -p "$repo/.shell-test"
@@ -86,6 +88,16 @@ port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0))
 node "$repo/tests/mock/server.js" --port "$port" --home "$HOME/.t3" --pairing first-code-123 >>"$HOME/t3-mock.log" 2>&1 &
 mock_pid=$!
 trap 'kill "$mock_pid" 2>/dev/null || true' EXIT
+# A stand-in for the command line of T3 Code, where T3 Code installs it: it
+# notes how it was called and makes a pairing code of the mock.
+mkdir -p "$HOME/.t3/bin"
+cat >"$HOME/.t3/bin/t3" <<CLI
+#!/bin/sh
+printf '%s\n' "\$*" >>"$HOME/t3-cli.args"
+curl -s -X POST 'http://127.0.0.1:$port/__mock/pairing?code=cli-code-321' >/dev/null
+printf '{"id":"p-1","credential":"cli-code-321","label":"Visor","scopes":[],"expiresAt":"2030-01-01T00:00:00.000Z"}\n'
+CLI
+chmod +x "$HOME/.t3/bin/t3"
 # mock_state PYTHON: an expression over the state `s` of the mock, printed as true or false.
 mock_state() { curl -s "http://127.0.0.1:$port/__mock/state" | python3 -c "import json,sys; s=json.load(sys.stdin); print(str($1).lower())"; }
 # wait_mock PYTHON [seconds]: gives the expression time to become true.
@@ -129,14 +141,11 @@ expect_shows() {
 origin="http://127.0.0.1:$port"
 serial() { gg token-serial; }
 # pair_by_hand TOKEN: what pairing leaves behind, without the window.
-pair_by_hand() {
-    gs token-origin "$origin"
-    keyring_store "$origin" "$1"
-    gs token-serial "$(($(serial) + 1))"
-}
+pair_by_hand() { t3_pair "$origin" "$1"; }
 
 t3="visor.content.registry.get('t3')"
-check 'not paired: no rows, no connection' "$t3.rows.length === 0 && !$t3.module.client.connected"
+client="$first_client"
+check 'not paired: no rows, no client' "$t3.rows.length === 0 && $t3.module.clients.size === 0"
 
 if [[ "${2:-}" == no-keyring ]]; then
     # --- no Secret Service on the bus ------------------------------------------------
@@ -150,16 +159,16 @@ if [[ "${2:-}" == no-keyring ]]; then
     sleep 1
     expect_shows 'without a keyring the row says so' 'The keyring is not available'
     expect_mock 'and the pairing code was not used up' "s['exchanges'] == 0 and s['pairings'] == []"
-    expect_setting 'nothing is paired' token-origin "''"
+    expect_setting 'nothing is paired' servers '@as []'
     check 'the window is still there' "global.get_window_actors().some(a => a.meta_window.title === '$PREFS_WINDOW')"
     prefs_close
 
     # Paired before the keyring went away: the module has no token.
     gs token-serial 1
-    gs token-origin "$origin"
+    gs servers "['$origin']"
     sleep 2
     check 'the module shows nothing and waits for nothing' \
-        "$t3.rows.length === 0 && !$t3.module.client.connected && !$t3.module.client.connecting && $t3.module.client.retrySource === 0 && $t3.module.client.lookup === null"
+        "$t3.rows.length === 0 && !$client?.connected && !$client.connecting && $client.retrySource === 0 && $client.lookup === null"
     shell_eval "visor.content.registry.setEnabled('t3', false)" >/dev/null
     shell_eval "visor.content.registry.setEnabled('t3', true)" >/dev/null
     sleep 1
@@ -172,11 +181,11 @@ if [[ "${2:-}" == no-keyring ]]; then
     keyring_start
     keyring_store "$origin" mock-token
     kill "$keyring_pid"
-    shell_wait_for "$t3.module.client.keyringOwned === false"
-    check 'no keyring again: still nothing' "$t3.rows.length === 0 && !$t3.module.client.connected"
+    shell_wait_for "$client.keyringOwned === false"
+    check 'no keyring again: still nothing' "$t3.rows.length === 0 && !$client?.connected"
     keyring_start
     wait_check 'the keyring appears: the module reads the token and connects' \
-        "$t3.module.client.connected && $t3.rows.length === 4"
+        "$client?.connected && $t3.rows.length === 4"
     check 'Visor and the module are still enabled' "Main.extensionManager.lookup('$uuid').state === 1 && Main.extensionManager.lookup('visor@taulit.github.io').state === 1"
     noise="$(tail -n "+$((log_start + 1))" "$HOME/shell.log" | grep -E 'JS ERROR|WARNING|CRITICAL|visor' | grep -v 'Tried to ping window' || true)"
     if [[ -z "$noise" ]]; then echo 'ok    the shell logged nothing else'; else echo 'FAIL  the shell logged:'; head -n 20 <<<"$noise"; failures=$((failures + 1)); fi
@@ -200,11 +209,11 @@ if [[ "${2:-}" == locked ]]; then
     expect_mock 'the pairing code is not used meanwhile' "s['exchanges'] == 0"
     shell_eval "(() => { const d = $dialog; d._passwordEntry.text = 'sandbox'; d._onContinueButton(); return true; })()" >/dev/null
     expect_keyring 'with the password the token is stored' "$origin" mock-token
-    expect_setting 'and its origin' token-origin "'$origin'"
+    expect_setting 'and its origin' servers "['$origin']"
     expect_mock 'after one exchange' "s['exchanges'] == 1 and len(s['pairings']) == 1"
     expect_keyring 'the probe item is gone' visor:probe ''
-    wait_check 'the module connects' "$t3.module.client.connected && $t3.rows.length === 4"
-    expect_shows 'the window says Connected' 'Connected'
+    wait_check 'the module connects' "$client?.connected && $t3.rows.length === 4"
+    expect_shows 'the window lists the server' "This machine · $origin"
 
     # The prompt dismissed: the code is kept.
     prefs_click_on Disconnect button
@@ -219,7 +228,7 @@ if [[ "${2:-}" == locked ]]; then
     sleep 1
     expect_shows 'the prompt dismissed: the row says so' 'The keyring is not available'
     expect_mock 'and the pairing code was not used up' "s['exchanges'] == 1"
-    expect_setting 'nothing is paired' token-origin "''"
+    expect_setting 'nothing is paired' servers '@as []'
 
     # The window closes while the server answers: the token is kept all the same.
     curl -s -X POST "http://127.0.0.1:$port/__mock/slow-token?ms=1000" >/dev/null
@@ -232,8 +241,8 @@ if [[ "${2:-}" == locked ]]; then
     prefs_close
     expect_mock 'the window closed while the server was answering' "s['exchanges'] == 2 and len(s['pairings']) == 2"
     expect_keyring 'the token is in the keyring all the same' "$origin" mock-token
-    expect_setting 'with its origin' token-origin "'$origin'"
-    wait_check 'and the module connects' "$t3.module.client.connected && $t3.rows.length === 4"
+    expect_setting 'with its origin' servers "['$origin']"
+    wait_check 'and the module connects' "$client?.connected && $t3.rows.length === 4"
     expect_no_secret_in_dconf 'no pairing code and no token in dconf'
     noise="$(tail -n "+$((log_start + 1))" "$HOME/shell.log" | grep -E 'JS ERROR|WARNING|CRITICAL|visor' | grep -v 'Tried to ping window' || true)"
     if [[ -z "$noise" ]]; then echo 'ok    the shell logged nothing else'; else echo 'FAIL  the shell logged:'; head -n 20 <<<"$noise"; failures=$((failures + 1)); fi
@@ -252,7 +261,7 @@ prefs_enter
 wait_mock "s['exchanges'] == 1"
 expect_mock 'the server refuses a wrong pairing link' "s['exchanges'] == 1 and s['pairings'] == [] and s['ticketRequests'] == 0"
 expect_keyring 'and no token is stored' "$origin" ''
-expect_setting 'nothing is paired' token-origin "''"
+expect_setting 'nothing is paired' servers '@as []'
 expect_shows 'the row says that the link is wrong' 'The link is wrong or has expired'
 
 # --- pairing -------------------------------------------------------------------
@@ -262,19 +271,18 @@ prefs_click_on Connect button
 expect_keyring 'Connect with the pairing link stores the token in the keyring' "$origin" mock-token
 expect_no_secret_in_dconf 'and not in dconf'
 expect_setting 'the settings count the change' token-serial 1
-expect_shows 'the window says Connected' 'Connected'
-expect_setting 'the address of the local server is not stored' server-url "''"
-expect_setting 'but the origin the token is for' token-origin "'http://127.0.0.1:$port'"
+expect_shows 'the window lists the server' "This machine · $origin"
+expect_setting 'the list of servers has the origin the token is for' servers "['$origin']"
 expect_mock 'the server saw one exchange, labelled Visor, for both scopes' \
     "len(s['pairings']) == 1 and s['pairings'][0]['label'].startswith('Visor (') and s['pairings'][0]['scope'] == 'orchestration:read orchestration:operate'"
 wait_check 'the module connects without a restart and shows the sessions' \
-    "$t3.module.client.connected && $t3.rows.length === 4"
+    "$client?.connected && $t3.rows.length === 4"
 
 # --- disconnect ----------------------------------------------------------------
 prefs_click_on Disconnect button
 expect_keyring 'Disconnect removes the token from the keyring' "$origin" ''
-expect_setting 'and forgets its origin' token-origin "''"
-wait_check 'the rows are gone and the socket is closed' "$t3.rows.length === 0 && !$t3.module.client.connected"
+expect_setting 'and forgets its origin' servers '@as []'
+wait_check 'the rows are gone and the client with them' "$t3.rows.length === 0 && $t3.module.clients.size === 0"
 sleep 0.5
 expect_mock 'the server sees no client' "s['clients'] == 0"
 
@@ -284,7 +292,7 @@ pair_by_hand refused-token-abc
 sleep 5
 expect_mock 'a refused token is tried once in five seconds' "s['ticketRequests'] == $before + 1"
 check 'the module waits for another token' \
-    "$t3.module.client.rejected && $t3.module.client.retrySource === 0 && !$t3.module.client.connecting && $t3.rows.length === 0"
+    "$client.rejected && $client.retrySource === 0 && !$client.connecting && $t3.rows.length === 0"
 refused="$(tail -n "+$((log_start + 1))" "$HOME/shell.log" | grep -c 'refused the access token' || true)"
 if [[ "$refused" == 1 ]]; then echo 'ok    one line in the log says so'; else echo "FAIL  $refused lines in the log about the refused token"; failures=$((failures + 1)); fi
 
@@ -297,23 +305,56 @@ prefs_type '  second-code-456 '
 prefs_enter
 sleep 1
 expect_keyring 'a bare code and Enter pair with the server of this machine' "$origin" mock-token
-wait_check 'the module connects again' "$t3.module.client.connected && $t3.rows.length === 4"
+wait_check 'the module connects again' "$client?.connected && $t3.rows.length === 4"
 
-# --- the address -----------------------------------------------------------------
-gs server-url "http://127.0.0.1:1"
-wait_check 'another address: the module leaves the server' "!$t3.module.client.connected && $t3.rows.length === 0"
-gs server-url "http://127.0.0.1:$port/"
-wait_check 'the address of the mock: connected again' "$t3.module.client.connected && $t3.rows.length === 4"
+# --- this machine, through the command line of T3 Code ---------------------------
+prefs_click_on Disconnect button
+expect_keyring 'Disconnect once more' "$origin" ''
+expect_shows 'not paired with the local server: the window offers to pair it' 'Pair with the T3 Code server running here, without a link'
+prefs_click_on 'This machine'
+expect_keyring 'Connect next to "This machine" pairs through the command line' "$origin" mock-token
+expect_setting 'with the local server' servers "['$origin']"
+if grep -qxF -- 'auth pairing create --json --ttl 2m --scope orchestration:read --scope orchestration:operate --label Visor ('"$(hostname)"')' "$HOME/t3-cli.args" 2>/dev/null; then
+    echo 'ok    the command line was asked for a short-lived code with the two scopes, once'
+else
+    echo "FAIL  the command line was asked: $(cat "$HOME/t3-cli.args" 2>/dev/null)"; failures=$((failures + 1))
+fi
+wait_check 'the module connects' "$client?.connected && $t3.rows.length === 4"
+if prefs_shows 'Pair with the T3 Code server running here, without a link'; then
+    echo 'FAIL  the window still offers to pair the local server'; failures=$((failures + 1))
+else
+    echo 'ok    paired: the window offers it no more'
+fi
 
+# --- a second server ----------------------------------------------------------------
+port2="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+node "$repo/tests/mock/server.js" --port "$port2" --pairing second-machine-code \
+    --environment env-other --label other >>"$HOME/t3-mock-2.log" 2>&1 &
+mock2_pid=$!
+trap 'kill "$mock_pid" "$mock2_pid" 2>/dev/null || true' EXIT
+for _ in $(seq 50); do curl -s -o /dev/null "http://127.0.0.1:$port2/.well-known/t3/environment" && break; sleep 0.1; done
+field
+prefs_type "http://127.0.0.1:$port2/pair#token=second-machine-code"
+prefs_click_on Connect button
+expect_keyring 'a pairing link of a second server stores its token too' "http://127.0.0.1:$port2" mock-token
+expect_keyring 'next to the first' "$origin" mock-token
+expect_setting 'the list has both, in the order they were paired' servers "['$origin', 'http://127.0.0.1:$port2']"
+sleep 1
+expect_shows 'the window names the second server as it calls itself' 'other'
+wait_check 'the module shows the sessions of both' \
+    "$t3.module.clients.size === 2 && [...$t3.module.clients.values()].every(c => c.connected) && $t3.module.sessions.length === 8"
+prefs_click_on Disconnect button
+expect_keyring 'Disconnect of the first row removes its token' "$origin" ''
+expect_keyring 'and leaves the token of the second' "http://127.0.0.1:$port2" mock-token
+expect_setting 'and the second server' servers "['http://127.0.0.1:$port2']"
+wait_check 'the module keeps the second' "$t3.module.clients.size === 1 && $client?.connected && $client.origin === 'http://127.0.0.1:$port2'"
 
 # --- a token goes to its own server only -------------------------------------------
 before="$(curl -s "http://127.0.0.1:$port/__mock/state" | python3 -c 'import json,sys; print(json.load(sys.stdin)["ticketRequests"])')"
-gs token-origin "http://127.0.0.1:1"
-wait_check 'a token issued by another server: the module leaves' "!$t3.module.client.connected && $t3.rows.length === 0"
+gs servers "['http://127.0.0.1:$port2', 'http://127.0.0.1:1']"
 sleep 2.5
-expect_mock 'and does not offer it to this one' "s['ticketRequests'] == $before"
-gs token-origin "http://127.0.0.1:$port"
-wait_check 'the origin of the token again: connected' "$t3.module.client.connected && $t3.rows.length === 4"
+expect_mock 'a server without a token is offered none, and no other' "s['ticketRequests'] == $before"
+kill "$mock2_pid" 2>/dev/null || true
 
 prefs_close
 expect_no_secret_in_dconf 'no pairing code and no token in dconf'

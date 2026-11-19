@@ -20,7 +20,7 @@ cycles="$2"
 # Every actor below the stage, so leaks outside uiGroup's direct children count too.
 count="$SHELL_ACTOR_COUNT"
 t3="visor.content.registry.get('t3')"
-connected() { shell_wait_for "$t3 != null && $t3.module.client.connected && $t3.rows.length > 0" 15; }
+connected() { shell_wait_for "$t3 != null && $first_client?.connected && $t3.rows.length > 0" 15; }
 
 settle() { shell_eval 'new Promise(r => GLib.timeout_add(GLib.PRIORITY_LOW, 150, () => (r(true), false)))' >/dev/null; }
 

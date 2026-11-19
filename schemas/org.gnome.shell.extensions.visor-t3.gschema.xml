@@ -6,20 +6,25 @@
       <summary>Flash when an agent waits</summary>
       <description>Briefly expand the notch of Visor when a T3 Code agent starts waiting for an approval.</description>
     </key>
+    <key name="servers" type="as">
+      <default>[]</default>
+      <summary>Paired T3 Code servers</summary>
+      <description>The origins of the T3 Code servers the module is paired with, such as http://127.0.0.1:3773 for this machine or http://100.87.29.32:3773 for another one in the tailnet. Their sessions are shown together. Each access token is in the keyring and is sent to its own server only. Empty: not paired, no sessions are shown.</description>
+    </key>
     <key name="server-url" type="s">
       <default>''</default>
-      <summary>T3 Code server</summary>
-      <description>Address of the T3 Code server, such as http://127.0.0.1:3773. Empty: the server running on this machine, found through its runtime file below ~/.t3.</description>
+      <summary>T3 Code server (before version 0.2)</summary>
+      <description>The address of the one server of older versions. Carried over into "servers" once and emptied then.</description>
     </key>
     <key name="token-origin" type="s">
       <default>''</default>
-      <summary>Origin of the T3 Code access token</summary>
-      <description>Address of the server the module is paired with, such as http://127.0.0.1:3773. Empty: not paired, T3 Code sessions are not shown. The access token itself is in the keyring and is sent to this server only.</description>
+      <summary>Origin of the T3 Code access token (before version 0.2)</summary>
+      <description>The server older versions were paired with. Carried over into "servers" once and emptied then.</description>
     </key>
     <key name="token-serial" type="i">
       <default>0</default>
       <summary>Changes of the T3 Code access token</summary>
-      <description>Counted up by the settings window whenever it stored or removed the access token in the keyring, so that the module reads it again.</description>
+      <description>Counted up by the settings window whenever it stored or removed an access token in the keyring, so that the module reads it again.</description>
     </key>
   </schema>
 </schemalist>

@@ -7,7 +7,7 @@ import {
   gettext as _,
 } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import { pairingGroup } from './pairing-group.js';
+import { pairingGroups } from './pairing-group.js';
 
 const VISOR_UUID = 'visor@taulit.github.io';
 // Search for Visor in the extension store. Replace it with the page of Visor once you know it.
@@ -61,7 +61,7 @@ export default class T3CodePreferences extends ExtensionPreferences {
     page.add(hint);
 
     const settings = this.getSettings();
-    page.add(pairingGroup(settings, window));
+    for (const group of pairingGroups(settings, window)) page.add(group);
 
     const behavior = new Adw.PreferencesGroup({ title: _('Behavior') });
     const flash = new Adw.SwitchRow({ title: _('Show briefly when an agent is waiting') });

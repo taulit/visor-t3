@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: visor-t3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-18 14:47+0100\n"
+"POT-Creation-Date: 2026-11-19 11:53+0100\n"
 "PO-Revision-Date: 2026-11-18 14:47+0100\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -17,184 +17,194 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: build/module.js:58
+#: build/module.js:64
 msgid "T3 Code"
 msgstr "T3 Code"
 
-#: build/module.js:62
+#: build/module.js:68
 msgid "t3 Fix the failing test"
 msgstr "t3 修复失败的测试"
 
-#: build/module.js:109 build/module.js:385
+#: build/module.js:168 build/module.js:484
 msgid "Untitled thread"
 msgstr "未命名的会话"
 
-#: build/module.js:114
+#: build/module.js:173
 #, javascript-format
 msgid "Send to %s"
 msgstr "发送给 %s"
 
-#: build/module.js:123
+#: build/module.js:182
 msgid "Start a new thread"
 msgstr "开始新会话"
 
-#: build/module.js:287
+#: build/module.js:373
 #, javascript-format
 msgid "+ %d more"
 msgstr "+ 另外 %d 个"
 
-#: build/module.js:340
+#: build/module.js:439
 msgid "Agent"
 msgstr "代理"
 
-#: build/module.js:343
+#: build/module.js:442
 #, javascript-format
 msgid "%s is waiting"
 msgstr "%s 正在等待"
 
-#: build/module.js:352
+#: build/module.js:451
 msgid "Starting"
 msgstr "正在启动"
 
-#: build/module.js:355 build/module.js:356
+#: build/module.js:454 build/module.js:455
 msgid "Working"
 msgstr "正在工作"
 
-#: build/module.js:359
+#: build/module.js:458
 msgid "Answer this request in T3 Code"
 msgstr "请在 T3 Code 中回答此请求"
 
-#: build/module.js:361
+#: build/module.js:460
 msgid "Wants to run"
 msgstr "想要运行"
 
-#: build/module.js:363
+#: build/module.js:462
 msgid "Wants to use a file"
 msgstr "想要使用文件"
 
-#: build/module.js:364
+#: build/module.js:463
 msgid "Asks for permission"
 msgstr "请求权限"
 
-#: build/module.js:366
+#: build/module.js:465
 msgid "Has a question"
 msgstr "有一个问题"
 
-#: build/module.js:368
+#: build/module.js:467
 msgid "Done"
 msgstr "完成"
 
-#: build/module.js:370
+#: build/module.js:469
 msgid "Failed"
 msgstr "失败"
 
-#: build/module.js:381
+#: build/module.js:480
 msgid "Could not send"
 msgstr "无法发送"
 
-#: build/module.js:407 build/module.js:588
+#: build/module.js:508 build/module.js:692
 msgid "Open in T3 Code"
 msgstr "在 T3 Code 中打开"
 
-#: build/module.js:419 build/module.js:511
+#: build/module.js:520 build/module.js:613
 msgid "Deny"
 msgstr "拒绝"
 
-#: build/module.js:425 build/module.js:512
+#: build/module.js:526 build/module.js:614
 msgid "Allow"
 msgstr "允许"
 
-#: build/module.js:435
+#: build/module.js:536
 msgid "Answer"
 msgstr "回答"
 
-#: build/module.js:522
+#: build/module.js:624
 msgid "Has characters that cannot be shown. Open T3 Code to read it"
 msgstr "包含无法显示的字符。请打开 T3 Code 阅读"
 
-#: build/module.js:523
+#: build/module.js:625
 msgid "Open T3 Code to read all of it"
 msgstr "打开 T3 Code 阅读全部内容"
 
-#: build/module.js:561
+#: build/module.js:663
 #, javascript-format
 msgid "Reply to %s"
 msgstr "回复 %s"
 
-#: build/module.js:561 build/module.js:562
+#: build/module.js:663 build/module.js:664
 msgid "Reply"
 msgstr "回复"
 
-#: build/module.js:577
+#: build/module.js:681
 msgid "Stop"
 msgstr "停止"
 
-#: build/pairing-group.js:63
+#: build/pairing-group.js:96
 msgid "This is not a pairing link"
 msgstr "这不是配对链接"
 
-#: build/pairing-group.js:65 build/pairing-group.js:206
-msgid "Use https for a server on another machine"
-msgstr "其他机器上的服务器请使用 https"
+#: build/pairing-group.js:98
+msgid "Use https or a Tailscale address for another machine"
+msgstr "其他机器请使用 https 或 Tailscale 地址"
 
-#: build/pairing-group.js:67
+#: build/pairing-group.js:100
 msgid "The link is wrong or has expired"
 msgstr "链接有误或已过期"
 
-#: build/pairing-group.js:69
+#: build/pairing-group.js:102
 msgid "This version of T3 Code does not fit Visor"
 msgstr "此版本的 T3 Code 与 Visor 不兼容"
 
-#: build/pairing-group.js:71
+#: build/pairing-group.js:104
 msgid "The keyring is not available"
 msgstr "密钥环不可用"
 
-#: build/pairing-group.js:73
+#: build/pairing-group.js:106
+msgid "Disconnect a server first"
+msgstr "请先断开一个服务器"
+
+#: build/pairing-group.js:108
+msgid "T3 Code gave no pairing code"
+msgstr "T3 Code 未给出配对码"
+
+#: build/pairing-group.js:110
 msgid "The server cannot be reached"
 msgstr "无法连接到服务器"
 
-#: build/pairing-group.js:78
-msgid "Server"
+#: build/pairing-group.js:119
+msgid "Servers"
 msgstr "服务器"
 
-#: build/pairing-group.js:83
-msgid "Pairing link or code"
-msgstr "配对链接或代码"
+#: build/pairing-group.js:121
+msgid "Add a server"
+msgstr "添加服务器"
 
-#: build/pairing-group.js:86
-msgid "Connect"
-msgstr "连接"
+#: build/pairing-group.js:123
+msgid ""
+"Create a pairing link in T3 Code under Settings → Sharing & access on each "
+"machine whose agents Visor should show, and paste it here."
+msgstr ""
+"在每台需要由 Visor 显示其代理的机器上，于 T3 Code 的 Settings → Sharing & "
+"access 中创建配对链接，并粘贴到此处。"
 
-#: build/pairing-group.js:176
-msgid "Connected"
-msgstr "已连接"
+#: build/pairing-group.js:147 build/pairing-group.js:148
+#: build/pairing-group.js:197
+msgid "This machine"
+msgstr "本机"
 
-#: build/pairing-group.js:178
+#: build/pairing-group.js:171
 msgid "Disconnect"
 msgstr "断开连接"
 
-#: build/pairing-group.js:193
-msgid "Server address"
-msgstr "服务器地址"
+#: build/pairing-group.js:177
+msgid "Pairing link or code"
+msgstr "配对链接或代码"
 
-#: build/pairing-group.js:194
-msgid "Address, empty for this machine"
-msgstr "地址，留空表示本机"
+#: build/pairing-group.js:180 build/pairing-group.js:200
+msgid "Connect"
+msgstr "连接"
+
+#: build/pairing-group.js:198
+msgid "Pair with the T3 Code server running here, without a link"
+msgstr "无需链接，直接与本机的 T3 Code 服务器配对"
 
 #: build/pairing-group.js:207
-msgid "This is not a server address"
-msgstr "这不是服务器地址"
+msgid "Another machine"
+msgstr "其他机器"
 
-#: build/pairing-group.js:228
-msgid ""
-"Create a pairing link in T3 Code under Settings → Sharing & access and paste "
-"it here."
-msgstr ""
-"在 T3 Code 的 Settings → Sharing & access 中创建配对链接，并粘贴到此处。"
-
-#: build/pairing-group.js:231 build/pairing-group.js:232
-msgid "This machine"
-msgstr "本机"
+#: build/pairing-group.js:335
+msgid "None yet, so no sessions are shown."
+msgstr "尚无服务器，因此不显示任何会话。"
 
 #: build/prefs.js:29
 msgid "General"
@@ -212,10 +222,19 @@ msgstr "此模块需要 Visor，没有它什么也做不了。"
 msgid "Get Visor"
 msgstr "获取 Visor"
 
-#: build/prefs.js:44
+#: build/prefs.js:45
 msgid "Behavior"
 msgstr "行为"
 
-#: build/prefs.js:45
+#: build/prefs.js:46
 msgid "Show briefly when an agent is waiting"
 msgstr "代理等待时短暂显示"
+
+#~ msgid "Connected"
+#~ msgstr "已连接"
+
+#~ msgid "Server address"
+#~ msgstr "服务器地址"
+
+#~ msgid "Address, empty for this machine"
+#~ msgstr "地址，留空表示本机"

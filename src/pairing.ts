@@ -3,18 +3,24 @@
 // settings window and the tests share it; nothing here may import the shell.
 import { cleanOrigin, isInsecureOrigin } from './protocol.js';
 
-/** The settings the module reads and the settings window writes. */
-export const SERVER_KEY = 'server-url';
 /**
- * The origin the token was issued for, empty when not paired. The token
- * itself is in the keyring (keyring.ts) and is sent nowhere else.
+ * The servers the module is paired with: the origin each token was issued
+ * for, in the order they were paired. The tokens themselves are in the
+ * keyring (keyring.ts), one per origin, and each is sent to its origin only.
  */
-export const TOKEN_ORIGIN_KEY = 'token-origin';
-/** Counts up whenever the token in the keyring changed, so the module reads it again. */
+export const SERVERS_KEY = 'servers';
+/** Counts up whenever a token in the keyring changed, so the module reads them again. */
 export const TOKEN_SERIAL_KEY = 'token-serial';
+/**
+ * The one server of the versions before several: its address (empty for the
+ * local one) and the origin of its token. Read once, to carry that pairing
+ * over into `servers`, and emptied then.
+ */
+export const LEGACY_SERVER_KEY = 'server-url';
+export const LEGACY_TOKEN_ORIGIN_KEY = 'token-origin';
+/** More would be a list nobody reads; each one is a socket. */
+export const MAX_SERVERS = 8;
 
-/** Where a server listens when nothing says otherwise. */
-export const DEFAULT_ORIGIN = 'http://127.0.0.1:3773';
 /** Reading the sessions and answering them. */
 const PAIRING_SCOPES = ['orchestration:read', 'orchestration:operate'] as const;
 
@@ -72,13 +78,43 @@ export function parsePairing(input: unknown): Pairing | null {
   return origin && isCode(code) ? { origin, code } : null;
 }
 
-/** What `t3-server-url` is set to after pairing: empty when the server is the local one. */
-export const originToStore = (origin: string, local: string | null): string =>
-  origin === (local ?? DEFAULT_ORIGIN) ? '' : origin;
+/** The origins of `servers` that are addresses Visor sends a token to, each once, at most MAX_SERVERS. */
+export function serverList(values: readonly unknown[]): string[] {
+  const list: string[] = [];
+  for (const value of values) {
+    const origin = cleanOrigin(value);
+    if (origin && !list.includes(origin) && list.length < MAX_SERVERS) list.push(origin);
+  }
+  return list;
+}
 
-/** True when a token issued for `tokenOrigin` may be sent to `origin`: only to that very origin. */
-export const tokenFits = (tokenOrigin: string, origin: string | null): boolean =>
-  origin !== null && origin !== '' && tokenOrigin === origin;
+/** The list with `origin` paired as well; a server paired again keeps its place. */
+export const withServer = (list: readonly string[], origin: string): string[] =>
+  serverList([...list, origin]);
+
+export const withoutServer = (list: readonly string[], origin: string): string[] =>
+  list.filter(item => item !== origin);
+
+/** The part of Gio.Settings the carrying over needs, so that the tests need no GLib. */
+interface Strings {
+  get_string(key: string): string;
+  set_string(key: string, value: string): boolean;
+  get_strv(key: string): string[];
+  set_strv(key: string, value: string[]): boolean;
+}
+
+/**
+ * Carries the pairing of the versions with one server over into `servers`,
+ * once: afterwards the old keys are empty. The token in the keyring is the
+ * same, it is stored by origin.
+ */
+export function carryOverPairing(settings: Strings): void {
+  const origin = settings.get_string(LEGACY_TOKEN_ORIGIN_KEY);
+  if (!origin && !settings.get_string(LEGACY_SERVER_KEY)) return;
+  if (origin) settings.set_strv(SERVERS_KEY, withServer(settings.get_strv(SERVERS_KEY), origin));
+  settings.set_string(LEGACY_TOKEN_ORIGIN_KEY, '');
+  settings.set_string(LEGACY_SERVER_KEY, '');
+}
 
 export const tokenUrl = (origin: string): string => `${origin}/oauth/token`;
 
@@ -123,8 +159,41 @@ export type PairingError =
   | 'unreachable'
   | 'incompatible'
   /** The token cannot be stored: there is no keyring or it stays locked. */
-  | 'keyring';
+  | 'keyring'
+  /** MAX_SERVERS are paired already. */
+  | 'full'
+  /** The command line of T3 Code made no pairing code. */
+  | 'cli';
 
 /** What an answer of the token endpoint that is not a token means. */
 export const exchangeError = (status: number): PairingError =>
   status >= 400 && status < 500 ? 'rejected' : 'unreachable';
+
+/**
+ * The arguments of `t3` that make a one-time pairing code for the server of
+ * this machine, for what Visor needs and no more, good for two minutes.
+ */
+export const cliPairingArgs = (label: string): string[] => [
+  'auth',
+  'pairing',
+  'create',
+  '--json',
+  '--ttl',
+  '2m',
+  ...PAIRING_SCOPES.flatMap(scope => ['--scope', scope]),
+  '--label',
+  label.trim().slice(0, 80) || 'Visor',
+];
+
+/** The code in what `t3 auth pairing create --json` printed, or null. */
+export function decodeCliPairing(text: string): string | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof value !== 'object' || value === null) return null;
+  const { credential } = value as Record<string, unknown>;
+  return typeof credential === 'string' && isCode(credential) ? credential : null;
+}

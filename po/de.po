@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: visor-t3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-18 14:47+0100\n"
+"POT-Creation-Date: 2026-11-19 11:53+0100\n"
 "PO-Revision-Date: 2026-11-18 14:47+0100\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -17,187 +17,196 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: build/module.js:58
+#: build/module.js:64
 msgid "T3 Code"
 msgstr "T3 Code"
 
-#: build/module.js:62
+#: build/module.js:68
 msgid "t3 Fix the failing test"
 msgstr "t3 Behebe den fehlschlagenden Test"
 
-#: build/module.js:109 build/module.js:385
+#: build/module.js:168 build/module.js:484
 msgid "Untitled thread"
 msgstr "Unbenannter Thread"
 
-#: build/module.js:114
+#: build/module.js:173
 #, javascript-format
 msgid "Send to %s"
 msgstr "An %s senden"
 
-#: build/module.js:123
+#: build/module.js:182
 msgid "Start a new thread"
 msgstr "Neuen Thread starten"
 
-#: build/module.js:287
+#: build/module.js:373
 #, javascript-format
 msgid "+ %d more"
 msgstr "+ %d weitere"
 
-#: build/module.js:340
+#: build/module.js:439
 msgid "Agent"
 msgstr "Agent"
 
-#: build/module.js:343
+#: build/module.js:442
 #, javascript-format
 msgid "%s is waiting"
 msgstr "%s wartet"
 
-#: build/module.js:352
+#: build/module.js:451
 msgid "Starting"
 msgstr "Startet"
 
-#: build/module.js:355 build/module.js:356
+#: build/module.js:454 build/module.js:455
 msgid "Working"
 msgstr "Arbeitet"
 
-#: build/module.js:359
+#: build/module.js:458
 msgid "Answer this request in T3 Code"
 msgstr "Beantworte diese Anfrage in T3 Code"
 
-#: build/module.js:361
+#: build/module.js:460
 msgid "Wants to run"
 msgstr "Möchte ausführen"
 
-#: build/module.js:363
+#: build/module.js:462
 msgid "Wants to use a file"
 msgstr "Möchte eine Datei verwenden"
 
-#: build/module.js:364
+#: build/module.js:463
 msgid "Asks for permission"
 msgstr "Bittet um Erlaubnis"
 
-#: build/module.js:366
+#: build/module.js:465
 msgid "Has a question"
 msgstr "Hat eine Frage"
 
-#: build/module.js:368
+#: build/module.js:467
 msgid "Done"
 msgstr "Fertig"
 
-#: build/module.js:370
+#: build/module.js:469
 msgid "Failed"
 msgstr "Fehlgeschlagen"
 
-#: build/module.js:381
+#: build/module.js:480
 msgid "Could not send"
 msgstr "Senden nicht möglich"
 
-#: build/module.js:407 build/module.js:588
+#: build/module.js:508 build/module.js:692
 msgid "Open in T3 Code"
 msgstr "In T3 Code öffnen"
 
-#: build/module.js:419 build/module.js:511
+#: build/module.js:520 build/module.js:613
 msgid "Deny"
 msgstr "Ablehnen"
 
-#: build/module.js:425 build/module.js:512
+#: build/module.js:526 build/module.js:614
 msgid "Allow"
 msgstr "Erlauben"
 
-#: build/module.js:435
+#: build/module.js:536
 msgid "Answer"
 msgstr "Antworten"
 
-#: build/module.js:522
+#: build/module.js:624
 msgid "Has characters that cannot be shown. Open T3 Code to read it"
 msgstr ""
 "Enthält Zeichen, die sich nicht anzeigen lassen. Öffne T3 Code, um ihn zu "
 "lesen"
 
-#: build/module.js:523
+#: build/module.js:625
 msgid "Open T3 Code to read all of it"
 msgstr "Öffne T3 Code, um alles zu lesen"
 
-#: build/module.js:561
+#: build/module.js:663
 #, javascript-format
 msgid "Reply to %s"
 msgstr "Antwort an %s"
 
-#: build/module.js:561 build/module.js:562
+#: build/module.js:663 build/module.js:664
 msgid "Reply"
 msgstr "Antworten"
 
-#: build/module.js:577
+#: build/module.js:681
 msgid "Stop"
 msgstr "Stoppen"
 
-#: build/pairing-group.js:63
+#: build/pairing-group.js:96
 msgid "This is not a pairing link"
 msgstr "Das ist kein Kopplungslink"
 
-#: build/pairing-group.js:65 build/pairing-group.js:206
-msgid "Use https for a server on another machine"
-msgstr "Für einen Server auf einem anderen Rechner https verwenden"
+#: build/pairing-group.js:98
+msgid "Use https or a Tailscale address for another machine"
+msgstr "Für einen anderen Rechner https oder eine Tailscale-Adresse verwenden"
 
-#: build/pairing-group.js:67
+#: build/pairing-group.js:100
 msgid "The link is wrong or has expired"
 msgstr "Der Link ist falsch oder abgelaufen"
 
-#: build/pairing-group.js:69
+#: build/pairing-group.js:102
 msgid "This version of T3 Code does not fit Visor"
 msgstr "Diese Version von T3 Code passt nicht zu Visor"
 
-#: build/pairing-group.js:71
+#: build/pairing-group.js:104
 msgid "The keyring is not available"
 msgstr "Der Schlüsselbund ist nicht verfügbar"
 
-#: build/pairing-group.js:73
+#: build/pairing-group.js:106
+msgid "Disconnect a server first"
+msgstr "Zuerst einen Server trennen"
+
+#: build/pairing-group.js:108
+msgid "T3 Code gave no pairing code"
+msgstr "T3 Code hat keinen Kopplungscode geliefert"
+
+#: build/pairing-group.js:110
 msgid "The server cannot be reached"
 msgstr "Der Server ist nicht erreichbar"
 
-#: build/pairing-group.js:78
-msgid "Server"
+#: build/pairing-group.js:119
+msgid "Servers"
 msgstr "Server"
 
-#: build/pairing-group.js:83
-msgid "Pairing link or code"
-msgstr "Kopplungslink oder Code"
+#: build/pairing-group.js:121
+msgid "Add a server"
+msgstr "Server hinzufügen"
 
-#: build/pairing-group.js:86
-msgid "Connect"
-msgstr "Verbinden"
+#: build/pairing-group.js:123
+msgid ""
+"Create a pairing link in T3 Code under Settings → Sharing & access on each "
+"machine whose agents Visor should show, and paste it here."
+msgstr ""
+"Erstelle auf jedem Rechner, dessen Agenten Visor zeigen soll, in T3 Code "
+"unter Settings → Sharing & access einen Kopplungslink und füge ihn hier ein."
 
-#: build/pairing-group.js:176
-msgid "Connected"
-msgstr "Verbunden"
+#: build/pairing-group.js:147 build/pairing-group.js:148
+#: build/pairing-group.js:197
+msgid "This machine"
+msgstr "Dieser Rechner"
 
-#: build/pairing-group.js:178
+#: build/pairing-group.js:171
 msgid "Disconnect"
 msgstr "Trennen"
 
-#: build/pairing-group.js:193
-msgid "Server address"
-msgstr "Serveradresse"
+#: build/pairing-group.js:177
+msgid "Pairing link or code"
+msgstr "Kopplungslink oder Code"
 
-#: build/pairing-group.js:194
-msgid "Address, empty for this machine"
-msgstr "Adresse, leer für diesen Rechner"
+#: build/pairing-group.js:180 build/pairing-group.js:200
+msgid "Connect"
+msgstr "Verbinden"
+
+#: build/pairing-group.js:198
+msgid "Pair with the T3 Code server running here, without a link"
+msgstr "Mit dem T3-Code-Server dieses Rechners koppeln, ohne Link"
 
 #: build/pairing-group.js:207
-msgid "This is not a server address"
-msgstr "Das ist keine Serveradresse"
+msgid "Another machine"
+msgstr "Anderer Rechner"
 
-#: build/pairing-group.js:228
-msgid ""
-"Create a pairing link in T3 Code under Settings → Sharing & access and paste "
-"it here."
-msgstr ""
-"Erstelle in T3 Code unter Settings → Sharing & access einen Kopplungslink "
-"und füge ihn hier ein."
-
-#: build/pairing-group.js:231 build/pairing-group.js:232
-msgid "This machine"
-msgstr "Dieser Rechner"
+#: build/pairing-group.js:335
+msgid "None yet, so no sessions are shown."
+msgstr "Noch keiner, daher werden keine Sitzungen gezeigt."
 
 #: build/prefs.js:29
 msgid "General"
@@ -215,10 +224,19 @@ msgstr "Dieses Modul braucht Visor und tut ohne Visor nichts."
 msgid "Get Visor"
 msgstr "Visor holen"
 
-#: build/prefs.js:44
+#: build/prefs.js:45
 msgid "Behavior"
 msgstr "Verhalten"
 
-#: build/prefs.js:45
+#: build/prefs.js:46
 msgid "Show briefly when an agent is waiting"
 msgstr "Kurz zeigen, wenn ein Agent wartet"
+
+#~ msgid "Connected"
+#~ msgstr "Verbunden"
+
+#~ msgid "Server address"
+#~ msgstr "Serveradresse"
+
+#~ msgid "Address, empty for this machine"
+#~ msgstr "Adresse, leer für diesen Rechner"

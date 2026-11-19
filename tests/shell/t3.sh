@@ -81,6 +81,10 @@ run "(() => {
         wait,
         find: cls => $(content_find "' + cls + '"),
         mod: () => entry().module,
+        // The client of the first server; its sessions are the ones of the mock.
+        client: () => [...entry().module.clients.values()][0] ?? null,
+        // The key the module keeps a request of the first server under.
+        req: id => A.client().origin + ' ' + id,
         rows: () => entry().rows,
         row: id => entry().rows.find(r => r.id === 't3:' + id),
         ids: () => entry().rows.map(r => r.id.slice(3)).join(),
@@ -111,17 +115,17 @@ wait_title='Spawn a subagent for the fixture'
 
 # --- not paired, no server ---------------------------------------------------
 
-check 'without a token the module is empty and waits for nothing' \
-    "A.rows().length === 0 && A.chip() === null && A.mod().client.retrySource === 0 && !A.mod().client.connecting"
+check 'not paired: the module is empty and has no client' \
+    "A.rows().length === 0 && A.chip() === null && A.mod().clients.size === 0"
 t3_pair "http://127.0.0.1:$port" mock-token
 run 'A.wait(1500)'
-check 'without a server the module is empty' "A.rows().length === 0 && !A.mod().client.connected"
-check 'and it tries again later' "A.mod().client.retrySource !== 0"
+check 'without a server the module is empty' "A.rows().length === 0 && !A.client().connected"
+check 'and it tries again later' "A.client().retrySource !== 0"
 
 # --- scenario 3: an agent waits, the user allows ---------------------------------
 
 start_mock
-wait_check 'the server appears: connected' "A.mod().client.connected" 8
+wait_check 'the server appears: connected' "A.client().connected" 8
 wait_check 'four sessions: waiting first, three rows and "+ 1 more"' \
     "A.ids() === 'thread-wait,thread-run,thread-done,more' && A.row('more').title === '+ 1 more'"
 check 'the waiting row is amber and names the project' \
@@ -158,7 +162,7 @@ check 'the command and its buttons are gone from the expanded row' \
     "!A.find('visor-t3-command').some(a => a.mapped) && A.answers().length === 0"
 run "A.chevron('$wait_title').emit('clicked', 1)"
 wait_check 'the server confirms: the row shows running' \
-    "A.row('thread-wait').subtitle.startsWith('visor · Working') && A.mod().answered.size === 0 && A.mod().client.shell.threads.get('thread-wait-child').request === null"
+    "A.row('thread-wait').subtitle.startsWith('visor · Working') && A.mod().answered.size === 0 && A.client().shell.threads.get('thread-wait-child').request === null"
 
 # --- deny, and an action that fails ------------------------------------------
 
@@ -236,7 +240,7 @@ check 'and has no Allow, however short it is' \
 
 mock 'wait?thread=thread-run&request=request-7&prompt=ls&projection=fail'
 wait_check 'a command the server does not tell is asked for three times, then no more' \
-    "A.mod().failures.get('request-7')?.count === 3 && A.mod().failures.get('request-7').retryAt === null && !A.mod().asking.has('request-7')" 8
+    "A.mod().failures.get(A.req('request-7'))?.count === 3 && A.mod().failures.get(A.req('request-7')).retryAt === null && !A.mod().asking.has(A.req('request-7'))" 8
 check 'the mock was asked three times' "$(mock_state "s['projections'] >= 7")"
 check 'the row has no Allow and no Deny, it sends the user to T3 Code' \
     "A.row('thread-run').status === 'waiting' && A.row('thread-run').subtitle === 'visor · Answer this request in T3 Code' && A.row('thread-run').detail === undefined && A.row('thread-run').controls === undefined && A.row('thread-run').primary.label === 'Open in T3 Code'"
@@ -301,43 +305,117 @@ check 'no command without a text' "A.mod().commands[0].resolve('  ').length === 
 
 check 'every stream item was acknowledged and one ticket was used' "$(mock_state "s['clients'] == 1 and s['tickets'] == 1 and s['acks'] >= 8")"
 stop_mock
-wait_check 'server gone: the rows vanish' "A.rows().length === 0 && A.chip() === null && visor.content.attention === null && !A.mod().client.connected"
+wait_check 'server gone: the rows vanish' "A.rows().length === 0 && A.chip() === null && visor.content.attention === null && !A.client().connected"
 check 'no command without a server' "A.mod().commands[0].resolve('hello').length === 0"
 run 'A.wait(2500)'
-check 'it keeps trying, quietly' "A.mod().client.retrySource !== 0 && A.rows().length === 0"
+check 'it keeps trying, quietly' "A.client().retrySource !== 0 && A.rows().length === 0"
 start_mock --fixture shots
-wait_check 'server back: connected again, the rows return' "A.mod().client.connected && A.ids() === 'thread-wait,thread-run,thread-done'" 8
+wait_check 'server back: connected again, the rows return' "A.client().connected && A.ids() === 'thread-wait,thread-run,thread-done'" 8
 wait_check 'the waiting agent flashes again' "visor.content.attention === 'waiting' && A.chip() !== null"
 
 # --- an incompatible server ----------------------------------------------------
 
 stop_mock
-shell_wait_for "!A.mod().client.connected"
+shell_wait_for "!A.client().connected"
 start_mock --protocol 3
 run 'A.wait(3000)'
-check 'another protocol version: empty' "A.rows().length === 0 && !A.mod().client.connected"
+check 'another protocol version: empty' "A.rows().length === 0 && !A.client().connected"
 check 'and one line in the log' "$(tail -n "+$((log_before + 1))" "$HOME/shell.log" | grep -c 'orchestration protocol 3') === 1"
 
 # --- turned off ------------------------------------------------------------------
 
 stop_mock
 start_mock
-wait_check 'a compatible server again' "A.mod().client.connected && A.rows().length === 4" 8
+wait_check 'a compatible server again' "A.client().connected && A.rows().length === 4" 8
 mock 'wait?thread=thread-run&request=request-big&prompt=ls&projection=big'
 wait_check 'an answer of 5 MB closes the socket; after three of them the command stays unknown' \
-    "A.mod().failures.get('request-big')?.count === 3 && A.mod().client.connected && A.mod().client.synced" 15
+    "A.mod().failures.get(A.req('request-big'))?.count === 3 && A.client().connected && A.client().synced" 15
 check 'the row has no Allow' \
     "A.row('thread-run').subtitle === 'visor · Answer this request in T3 Code' && A.row('thread-run').controls === undefined && A.row('thread-run').primary.label === 'Open in T3 Code'"
 before="$(curl -s "http://127.0.0.1:$port/__mock/state" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tickets"])')"
 run 'A.wait(2500)'
-check 'and the connection stays' "A.mod().client.connected && $(mock_state "s['tickets'] == $before")"
+check 'and the connection stays' "A.client().connected && $(mock_state "s['tickets'] == $before")"
 run "visor.content.registry.setEnabled('t3', false)"
 check 'disable closes the socket and removes every source' \
-    "(() => { const m = A.mod(); return m.client === null && m.tickSource === 0 && m.expirySource === 0 && A.rows().length === 0 && visor.content.attention === null; })()"
+    "(() => { const m = A.mod(); return m.clients.size === 0 && m.tickSource === 0 && m.expirySource === 0 && A.rows().length === 0 && visor.content.attention === null; })()"
 sleep 0.5
 check 'the server sees no client' "$(mock_state "s['clients'] == 0")"
 run "visor.content.registry.setEnabled('t3', true)"
-wait_check 'enable connects again' "A.mod().client.connected && A.rows().length === 4" 8
+wait_check 'enable connects again' "A.client().connected && A.rows().length === 4" 8
+
+# --- a second server: another machine ------------------------------------------
+
+port2="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+node "$repo/tests/mock/server.js" --port "$port2" --fixture empty --token other-token \
+    --environment env-other --label other >>"$HOME/t3-mock-2.log" 2>&1 &
+mock2_pid=$!
+for _ in $(seq 50); do curl -s -o /dev/null "http://127.0.0.1:$port2/.well-known/t3/environment" && break; sleep 0.1; done
+trap 'stop_mock; kill "$mock2_pid" "${mock3_pid:-}" 2>/dev/null || true' EXIT
+mock2() { curl -s -X POST "http://127.0.0.1:$port2/__mock/$1" "${@:2}" >/dev/null; }
+actions2() { curl -s "http://127.0.0.1:$port2/__mock/actions" | python3 -c "import json,sys; a=json.load(sys.stdin); print(str($1).lower())"; }
+second="A.mod().clients.get('http://127.0.0.1:$port2')"
+mock reset
+t3_pair "http://127.0.0.1:$port2" other-token
+wait_check 'a second server is paired: both are connected, each with its own token' \
+    "A.mod().clients.size === 2 && A.client().connected && $second?.connected && $second.label === 'other'" 8
+check 'the first one was not torn down for it' "$(mock_state "s['clients'] == 1")"
+mock2 thread -d '{"id":"thread-run","title":"Same id elsewhere","status":"running","activityRunStatus":"running","activeRunId":"run-x"}'
+wait_check 'its session joins the list' \
+    "A.mod().sessions.some(s => s.title === 'Same id elsewhere' && s.client === $second)"
+run "A.row('more')?.activate()"
+check 'a thread id both servers have gets two rows with ids of their own' \
+    "A.rows().filter(r => r.title === 'Same id elsewhere' || r.title === 'Fix the flaky websocket test').length === 2 && new Set(A.rows().map(r => r.id)).size === A.rows().length"
+mock2 'wait?thread=thread-run&request=request-r&prompt=ls'
+wait_check 'it waits: amber, with Allow' \
+    "A.rows().find(r => r.title === 'Same id elsewhere')?.status === 'waiting' && A.rows().find(r => r.title === 'Same id elsewhere').primary?.label === 'Allow'"
+sleep 0.6
+run "A.rows().find(r => r.title === 'Same id elsewhere').primary.run()"
+sleep 0.4
+check 'Allow goes to the server the session runs on' \
+    "$(actions2 "len(a) == 1 and a[0]['type'] == 'runtime-request.respond' and a[0]['requestId'] == 'request-r' and a[0]['threadId'] == 'thread-run'")"
+check 'and not to the other one' "$(actions "len(a) == 0")"
+check '"t3 <text>" offers the thread that was active last, on whichever server' \
+    "(async () => { const results = await A.mod().commands[0].resolve('from the search'); return results[0]?.title === 'Send to Same id elsewhere' || results.map(r => r.title).join(); })()"
+run "A.mod().commands[0].resolve('from the search')[0].activate()"
+sleep 0.4
+check 'and sends it there' "$(actions2 "a[-1]['type'] == 'message.dispatch' and a[-1]['text'] == 'from the search'") && $(actions "len(a) == 0")"
+
+# The same machine under a second address: its sessions show once.
+port3="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+node "$repo/tests/mock/server.js" --port "$port3" --fixture empty --token other-token \
+    --environment env-other --label other >>"$HOME/t3-mock-3.log" 2>&1 &
+mock3_pid=$!
+for _ in $(seq 50); do curl -s -o /dev/null "http://127.0.0.1:$port3/.well-known/t3/environment" && break; sleep 0.1; done
+curl -s -X POST "http://127.0.0.1:$port3/__mock/thread" \
+    -d '{"id":"thread-run","title":"Same id elsewhere","status":"running","activityRunStatus":"running","activeRunId":"run-x"}' >/dev/null
+t3_pair "http://127.0.0.1:$port3" other-token
+wait_check 'the same environment under another address shows once' \
+    "A.mod().clients.size === 3 && [...A.mod().clients.values()].every(c => c.connected) && A.mod().sessions.filter(s => s.title === 'Same id elsewhere').length === 1" 8
+
+gs servers "['http://127.0.0.1:$port']"
+wait_check 'servers removed from the settings: their sessions are gone, their sockets closed' \
+    "A.mod().clients.size === 1 && !A.mod().sessions.some(s => s.title === 'Same id elsewhere') && A.client().connected"
+sleep 0.5
+if [[ "$(curl -s "http://127.0.0.1:$port2/__mock/state" | python3 -c 'import json,sys; print(json.load(sys.stdin)["clients"])')" == 0 ]]; then
+    echo 'ok    the removed server sees no client'
+else
+    echo 'FAIL  the removed server still has a client'; fail=1
+fi
+kill "$mock2_pid" "$mock3_pid" 2>/dev/null || true
+
+# --- the pairing of the version with one server -------------------------------------
+
+run "visor.content.registry.setEnabled('t3', false)"
+gs servers '@as []'
+gs token-origin "http://127.0.0.1:$port"
+run "visor.content.registry.setEnabled('t3', true)"
+wait_check 'a pairing of the version with one server is carried over and connects' \
+    "A.mod().clients.size === 1 && A.client().connected && A.rows().length > 0" 8
+if [[ "$(gg servers)" == "['http://127.0.0.1:$port']" && "$(gg token-origin)" == "''" ]]; then
+    echo 'ok    into the list of servers, and the old key is empty'
+else
+    echo "FAIL  servers $(gg servers), token-origin $(gg token-origin)"; fail=1
+fi
 
 # --- where the token is ----------------------------------------------------------
 if dconf dump / | grep -q 'mock-token' || grep -qa 'mock-token' "$XDG_CONFIG_HOME/dconf/user" ||

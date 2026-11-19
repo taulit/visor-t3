@@ -50,12 +50,25 @@ keyring_lookup() {
     secret-tool lookup xdg:schema io.github.taulit.Visor.T3 origin "$1" 2>/dev/null || true
 }
 
+# servers_with ORIGIN: the list of paired servers with ORIGIN added last, as a GVariant.
+servers_with() {
+    gg servers | python3 -c "
+import ast, sys
+text = sys.stdin.read().strip()
+servers = [] if text.startswith('@as') else ast.literal_eval(text)
+if sys.argv[1] not in servers: servers.append(sys.argv[1])
+print(repr(servers))" "$1"
+}
+
 # t3_pair ORIGIN TOKEN: what pairing in the settings window leaves behind.
 t3_pair() {
     keyring_store "$1" "$2"
-    gs token-origin "$1"
+    gs servers "$(servers_with "$1")"
     gs token-serial "$(($(gg token-serial) + 1))"
 }
+
+# The client of the first paired server, as a JS expression.
+first_client="[...visor.content.registry.get('t3').module.clients.values()][0]"
 
 # All actors below the notch that carry a style class, as a JS expression.
 content_find() {
