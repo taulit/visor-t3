@@ -25,7 +25,7 @@ if [[ "${1:-}" == --inside ]]; then
     shell_eval 'visor.notch.open()' >/dev/null
     shell_wait_for 'visor.notch.state === "open"'
     sleep 0.8
-    shell_shot_focus "$2" visor-sheet 24
+    shell_shot_focus "$2" visor-sheet 0 --frame
     exit 0
 fi
 
@@ -36,8 +36,7 @@ for scheme in dark light; do
     number=$((number + 1))
     file="$repo/catalog/$uuid/screenshot-$number.png"
     mkdir -p "$(dirname "$file")"
-    if nested --scheme "$scheme" --size 3200x2000 --scale 2 \
-        --wallpaper "$visor_repo/scripts/assets/wallpaper.jpg" \
+    if nested --scheme "$scheme" --size 6400x4000 --scale 4 \
         --log "$repo/.shell-test/shots.log" -- "$repo/scripts/shots.sh" --inside "$file" >/dev/null 2>&1; then
         echo "ok    ${file#"$repo"/}"
     else
