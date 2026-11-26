@@ -18,6 +18,7 @@ const MAX_ID = 200;
 const MAX_TITLE = 80;
 const MAX_PROJECT = 40;
 const MAX_DETAIL = 200;
+const MAX_LABEL = 40;
 /** A whole command or path as the expanded row shows it. */
 export const MAX_COMMAND = 4000;
 /** What the one-line preview of a row shows for certain, at any width of the panel. */
@@ -68,6 +69,21 @@ const isLoopback = (host: string): boolean => {
   return parts !== null && parts.slice(1).every(part => Number(part) <= 255);
 };
 
+/**
+ * True for an address in a Tailscale network: `100.64.0.0/10` and
+ * `fd7a:115c:a1e0::/48`. WireGuard encrypts what travels there, which is why
+ * T3 Code itself offers such an address for pairing over plain http.
+ */
+const isTailnet = (host: string): boolean => {
+  const name = host.toLowerCase();
+  const v4 = /^100\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name);
+  if (v4) {
+    const octets = v4.slice(1).map(Number);
+    return octets.every(octet => octet <= 255) && octets[0]! >= 64 && octets[0]! <= 127;
+  }
+  return /^\[fd7a:115c:a1e0:[0-9a-f:]*\]$/.test(name);
+};
+
 function parseOrigin(value: unknown): { origin: string; secure: boolean } | null {
   if (typeof value !== 'string' || value.length > 300) return null;
   const match = /^(https?):\/\/([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:\d{1,5})?\/?$/.exec(
@@ -76,21 +92,32 @@ function parseOrigin(value: unknown): { origin: string; secure: boolean } | null
   if (!match) return null;
   return {
     origin: `${match[1]}://${match[2]}${match[3] ?? ''}`,
-    secure: match[1] === 'https' || isLoopback(match[2]!),
+    secure: match[1] === 'https' || isLoopback(match[2]!) || isTailnet(match[2]!),
   };
 }
 
 /**
  * The origin without a trailing slash, or null when it is not a plain http(s)
- * address. Plain http is taken for this machine only: the token travels there.
+ * address. Plain http is taken for this machine and for Tailscale addresses
+ * only: the token travels there.
  */
 export function cleanOrigin(value: unknown): string | null {
   const parsed = parseOrigin(value);
   return parsed?.secure ? parsed.origin : null;
 }
 
-/** True for a well-formed address that is refused only because it is http to another machine. */
+/** True for a well-formed address that is refused only because it is plain http over an open network. */
 export const isInsecureOrigin = (value: unknown): boolean => parseOrigin(value)?.secure === false;
+
+/** True when `origin` names this machine. */
+export const isLocalOrigin = (origin: string): boolean => {
+  const match = /^https?:\/\/(\[[^\]]+\]|[^/:]+)/.exec(origin);
+  return match !== null && isLoopback(match[1]!);
+};
+
+/** The host of an origin, as a name for a server that has not said its own. */
+export const hostOf = (origin: string): string =>
+  /^https?:\/\/([^/]+?)(:\d+)?$/.exec(origin)?.[1] ?? origin;
 
 /** The origin a running server wrote into `server-runtime.json`. */
 export function decodeRuntimeState(text: string): string | null {
@@ -104,6 +131,8 @@ export function decodeRuntimeState(text: string): string | null {
 
 export interface Descriptor {
   environmentId: string;
+  /** What the server calls its machine, such as its host name; may be empty. */
+  label: string;
   /** Null when the server is too old to say. */
   version: number | null;
   threadStop: boolean;
@@ -126,6 +155,7 @@ export function decodeDescriptor(text: string): Descriptor | null {
   const capabilities = isObject(json.capabilities) ? json.capabilities : {};
   return {
     environmentId,
+    label: clean(json.label, MAX_LABEL),
     version: typeof version === 'number' && Number.isInteger(version) ? version : null,
     threadStop: capabilities.threadStop === true,
     shellThreadFamilies: capabilities.shellThreadFamilies === true,
@@ -637,6 +667,33 @@ const RANK: Record<Phase, number> = {
  * minutes.
  */
 export function sessionsOf(state: ShellState, now: number): Session[] {
+  return sessionsOfAll([state], now).map(({ source: _source, ...session }) => session);
+}
+
+/**
+ * The sessions of several servers in one list, ordered as `sessionsOf`
+ * orders them; `source` is the index of the state a session comes from.
+ */
+export function sessionsOfAll(
+  states: readonly ShellState[],
+  now: number,
+): (Session & { source: number })[] {
+  const sessions: (Session & { source: number; order: number })[] = [];
+  states.forEach((state, source) => {
+    for (const session of collect(state, now)) sessions.push({ ...session, source });
+  });
+  sessions.sort(
+    (a, b) =>
+      RANK[a.phase] - RANK[b.phase] ||
+      a.order - b.order ||
+      a.source - b.source ||
+      (a.id < b.id ? -1 : 1),
+  );
+  return sessions.map(({ order: _order, ...session }) => session);
+}
+
+/** The sessions of one server, each with the key it is ordered by. */
+function collect(state: ShellState, now: number): (Session & { order: number })[] {
   // A request of a subagent makes the thread wait that the user sees.
   const requests = new Map<string, NonNullable<Session['request']> & { createdAt: number }>();
   for (const thread of state.threads.values()) {
@@ -678,10 +735,7 @@ export function sessionsOf(state: ShellState, now: number): Session[] {
       order: request ? request.createdAt : -(until ?? thread.startedAt ?? thread.updatedAt),
     });
   }
-  sessions.sort(
-    (a, b) => RANK[a.phase] - RANK[b.phase] || a.order - b.order || (a.id < b.id ? -1 : 1),
-  );
-  return sessions.map(({ order: _order, ...session }) => session);
+  return sessions;
 }
 
 /** The thread a message from the search goes to: the one that was active last. */
@@ -710,11 +764,11 @@ export function lastActive(state: ShellState): Session | null {
 }
 
 /** The rows and how many sessions are behind "+ n more". */
-export function visibleSessions(
-  sessions: Session[],
+export function visibleSessions<T extends Session>(
+  sessions: T[],
   showAll: boolean,
   max = 3,
-): { shown: Session[]; more: number } {
+): { shown: T[]; more: number } {
   if (showAll || sessions.length <= max) return { shown: sessions, more: 0 };
   return { shown: sessions.slice(0, max), more: sessions.length - max };
 }

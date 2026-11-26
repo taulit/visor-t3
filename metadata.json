@@ -1,11 +1,11 @@
 {
   "uuid": "visor-t3@taulit.github.io",
   "name": "Visor: T3 Code",
-  "description": "Requires Visor. Shows the agent sessions of T3 Code in the notch: what works, what finished and what waits for you. Approvals are answered right in the row, and the command \"t3\" in the search sends a message to the last thread.\n\nNetwork: only the T3 Code server you pair it with. The access token is kept in the keyring. No telemetry.",
+  "description": "Requires Visor. Shows the agent sessions of T3 Code in the notch: what works, what finished and what waits for you, on this machine and on others you pair. Approvals are answered right in the row, and the command \"t3\" in the search sends a message to the last thread.\n\nNetwork: only the T3 Code servers you pair it with. The access tokens are kept in the keyring. No telemetry.",
   "shell-version": ["50", "51"],
   "url": "https://github.com/taulit/visor-t3",
   "settings-schema": "org.gnome.shell.extensions.visor-t3",
   "gettext-domain": "visor-t3",
-  "version-name": "0.1.0",
+  "version-name": "0.2.0",
   "visor": { "api": 1, "slot": "now", "id": "t3" }
 }

@@ -7,9 +7,9 @@ export const ENVIRONMENT_ID = '5d0c7a52-7f0e-4f0e-9d53-6f1f3b1f0001';
 export const PROJECT_ID = 'project-visor';
 export const APPROVAL_COMMAND = "printf 'subagent approval fixture' > subagent-approval.txt";
 
-export const descriptor = (version = 2) => ({
-  environmentId: ENVIRONMENT_ID,
-  label: 'mock',
+export const descriptor = (version = 2, environmentId = ENVIRONMENT_ID, label = 'mock') => ({
+  environmentId,
+  label,
   platform: { os: 'linux', arch: 'x64' },
   serverVersion: '0.0.0-mock',
   orchestrationProtocolVersion: version,

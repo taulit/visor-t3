@@ -1,31 +1,29 @@
-// The connection to the local T3 Code server, see docs/protocol.md:
-// descriptor, WebSocket ticket, socket, the shell stream. It reconnects with
-// a growing wait and at once when the network or the server's runtime file
-// changes. The access token is in the keyring (keyring.ts) and is read when
-// the settings say that there is one; a keyring that had no answer is asked
-// again when the Secret Service appears on the session bus. Without a token
-// it does nothing at all, and a token the server refuses is not tried again
-// until the pairing changes.
+// The connection to one paired T3 Code server, see docs/protocol.md:
+// descriptor, WebSocket ticket, socket, the shell stream. The module keeps
+// one per server. It reconnects with a growing wait and at once when the
+// network or the local server's runtime file changes. The access token is in
+// the keyring (keyring.ts), stored for the origin of the server; a keyring
+// that had no answer is asked again when the Secret Service appears on the
+// session bus. Without a token it does nothing at all, and a token the server
+// refuses is not tried again until the pairing changes.
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
 import { fetchText, runtimePath, type Answer } from './fetch.js';
 import { keyringServiceGone, lookupToken } from './keyring.js';
-import { SERVER_KEY, TOKEN_ORIGIN_KEY, TOKEN_SERIAL_KEY, tokenFits } from './pairing.js';
 import {
   METHODS,
   PONG_FRAME,
   ackFrame,
   applyShellItem,
   backoffSeconds,
-  cleanOrigin,
   decodeDescriptor,
   decodeFrames,
-  decodeRuntimeState,
   decodeTicket,
   descriptorUrl,
   emptyShell,
+  hostOf,
   isCompatible,
   isSnapshot,
   requestFrame,
@@ -39,12 +37,13 @@ import {
 } from './protocol.js';
 
 /**
- * The pairing the keyring had no answer for. A locked keyring asks for its
- * password; this keeps an extension that is disabled and enabled again (every
- * time the screen is unlocked) from asking over and over. It lasts as long as
- * the shell and ends when the pairing changes or a keyring service starts.
+ * The pairings the keyring had no answer for, as `<serial> <origin>`. A
+ * locked keyring asks for its password; this keeps an extension that is
+ * disabled and enabled again (every time the screen is unlocked) from asking
+ * over and over. It lasts as long as the shell and ends when the pairing
+ * changes or a keyring service starts.
  */
-let keyringFailedFor: string | null = null;
+const keyringFailedFor = new Set<string>();
 
 /**
  * A larger frame closes the socket. A thread projection that large is not
@@ -70,7 +69,6 @@ export class T3Client {
   /** The first snapshot of this connection has arrived: `shell` is what the server has. */
   synced = false;
 
-  private origin: string | null = null;
   private cancellable: Gio.Cancellable | null = null;
   private socket: Soup.WebsocketConnection | null = null;
   private pending = new Map<string, Pending>();
@@ -92,25 +90,30 @@ export class T3Client {
   /** Whether the Secret Service is on the session bus; null until the bus has said. */
   private keyringOwned: boolean | null = null;
 
-  /** `changed` is called when the threads or the connection changed. */
+  /** The counter of token changes this client last read the keyring for. */
+  private serial = 0;
+
+  /**
+   * `origin` is the server and the origin its token was issued for; the token
+   * goes nowhere else. `changed` is called when the threads or the connection
+   * changed.
+   */
   constructor(
     private http: Soup.Session,
-    private settings: Gio.Settings | null,
+    readonly origin: string,
     private changed: () => void,
   ) {}
 
-  start(): void {
+  /** What to call the server: what it calls itself, else its host. */
+  get label(): string {
+    return this.descriptor?.label || hostOf(this.origin);
+  }
+
+  /** `serial` is the counter of token changes in the settings. */
+  start(serial: number): void {
     if (this.running) return;
     this.running = true;
-    this.settings?.connectObject(
-      `changed::${SERVER_KEY}`,
-      () => this.restart(),
-      `changed::${TOKEN_SERIAL_KEY}`,
-      () => this.restart(),
-      `changed::${TOKEN_ORIGIN_KEY}`,
-      () => this.restart(),
-      this,
-    );
+    this.serial = serial;
     this.network = Gio.NetworkMonitor.get_default();
     this.network.connectObject('network-changed', () => this.retryNow(), this);
     try {
@@ -133,7 +136,7 @@ export class T3Client {
         const appeared = this.keyringOwned === false;
         this.keyringOwned = true;
         if (!appeared || this.token) return;
-        keyringFailedFor = null;
+        keyringFailedFor.clear();
         this.load();
       },
       () => {
@@ -150,7 +153,6 @@ export class T3Client {
     Gio.bus_unwatch_name(this.keyringWatch);
     this.keyringWatch = 0;
     this.keyringOwned = null;
-    this.settings?.disconnectObject(this);
     this.network?.disconnectObject(this);
     this.network = null;
     this.monitor?.disconnectObject(this);
@@ -170,7 +172,7 @@ export class T3Client {
   }
 
   link(threadId: string): string | null {
-    return this.origin && this.descriptor
+    return this.descriptor
       ? threadLink(this.origin, this.descriptor.environmentId, threadId)
       : null;
   }
@@ -205,13 +207,15 @@ export class T3Client {
 
   // --- connecting ---
 
-  private restart(): void {
-    if (!this.running) return;
-    this.drop();
-    this.attempt = 0;
-    this.rejected = false;
-    this.changed();
-    this.load();
+  /**
+   * A token in the keyring changed, of this server or of another one: read
+   * it again. The same token keeps the connection as it is, a refused one
+   * stays refused; another token starts over.
+   */
+  restart(serial: number): void {
+    if (!this.running || serial === this.serial) return;
+    this.serial = serial;
+    this.load(true);
   }
 
   private forget(): void {
@@ -220,31 +224,49 @@ export class T3Client {
     this.token = '';
   }
 
-  /** Reads the token of the paired origin from the keyring, then connects. */
-  private load(): void {
-    this.forget();
-    const origin = this.settings?.get_string(TOKEN_ORIGIN_KEY) ?? '';
-    // Not paired: the keyring is not asked at all.
-    if (!this.running || !origin) return;
-    const pairing = `${this.settings?.get_int(TOKEN_SERIAL_KEY) ?? 0} ${origin}`;
-    if (keyringFailedFor === pairing) return;
+  /**
+   * Reads the token of the server from the keyring, then connects. With
+   * `keep`, what is there stays unless the keyring has another token.
+   */
+  private load(keep = false): void {
+    if (keep) {
+      this.lookup?.cancel();
+      this.lookup = null;
+    } else {
+      this.forget();
+    }
+    if (!this.running) return;
+    const pairing = `${this.serial} ${this.origin}`;
+    if (keyringFailedFor.has(pairing)) return;
     const cancellable = (this.lookup = new Gio.Cancellable());
-    lookupToken(origin, cancellable)
+    lookupToken(this.origin, cancellable)
       .catch(() => null)
       .then(token => {
         // Cancelled by a change or by stop(): that is no answer of the keyring.
         if (this.lookup !== cancellable) return;
         this.lookup = null;
+        // A keyring that does not answer now takes nothing away from a token it gave.
+        if (keep && (token === this.token || (token === null && this.token))) return;
+        if (keep) {
+          this.drop();
+          this.attempt = 0;
+          this.rejected = false;
+          this.token = '';
+          this.changed();
+        }
         if (token === null) {
-          keyringFailedFor = pairing;
-          log(
-            'The keyring is not available, so the access token of T3 Code cannot be read; ' +
-              'its sessions are not shown. Not asking again until a keyring service ' +
-              'starts or Visor is paired anew.',
-          );
+          // One keyring for all servers: one line per pairing is enough.
+          const first = ![...keyringFailedFor].some(key => key.startsWith(`${this.serial} `));
+          keyringFailedFor.add(pairing);
+          if (first)
+            log(
+              'The keyring is not available, so the access token of T3 Code cannot be read; ' +
+                'its sessions are not shown. Not asking again until a keyring service ' +
+                'starts or Visor is paired anew.',
+            );
           return;
         }
-        keyringFailedFor = null;
+        keyringFailedFor.delete(pairing);
         this.token = token;
         this.connect();
       });
@@ -289,15 +311,8 @@ export class T3Client {
 
   /** True when the socket is open. A server that is not there is no error. */
   private async open(token: string, cancellable: Gio.Cancellable): Promise<boolean> {
-    const configured = this.settings?.get_string(SERVER_KEY) ?? '';
-    const origin = configured
-      ? cleanOrigin(configured)
-      : decodeRuntimeState(
-          (await this.readFile(Gio.File.new_for_path(runtimePath()), cancellable)) ?? '',
-        );
-    if (!origin || cancellable.is_cancelled()) return false;
     // The token goes to the server it was issued by and to no other.
-    if (!tokenFits(this.settings?.get_string(TOKEN_ORIGIN_KEY) ?? '', origin)) return false;
+    const origin = this.origin;
 
     const about = (await this.fetch('GET', descriptorUrl(origin), null, cancellable)).body;
     const descriptor = about ? decodeDescriptor(about) : null;
@@ -306,7 +321,7 @@ export class T3Client {
       if (!this.incompatibleLogged) {
         this.incompatibleLogged = true;
         log(
-          `T3 Code speaks orchestration protocol ${descriptor.version ?? 'unknown'}, ` +
+          `T3 Code at ${origin} speaks orchestration protocol ${descriptor.version ?? 'unknown'}, ` +
             'this module another one; its sessions are not shown.',
         );
       }
@@ -319,7 +334,7 @@ export class T3Client {
       // Asking again gets the same answer; the token itself is never logged.
       this.rejected = true;
       log(
-        `T3 Code refused the access token (HTTP ${answer.status}); ` +
+        `T3 Code at ${origin} refused the access token (HTTP ${answer.status}); ` +
           'pair again in the settings of Visor: T3 Code. Not trying again until then.',
       );
       return false;
@@ -334,7 +349,6 @@ export class T3Client {
       return false;
     }
 
-    this.origin = origin;
     this.descriptor = descriptor;
     this.socket = socket;
     this.connected = true;
@@ -357,19 +371,6 @@ export class T3Client {
       requestFrame(this.shellRequest, METHODS.subscribeShell, subscribeShellPayload(descriptor)),
     );
     return true;
-  }
-
-  private readFile(file: Gio.File, cancellable: Gio.Cancellable): Promise<string | null> {
-    return new Promise(resolve => {
-      file.load_contents_async(cancellable, (_source, result) => {
-        try {
-          const [, bytes] = file.load_contents_finish(result);
-          resolve(bytes.length <= MAX_HTTP_BYTES ? new TextDecoder().decode(bytes) : null);
-        } catch {
-          resolve(null);
-        }
-      });
-    });
   }
 
   private fetch(
@@ -506,7 +507,6 @@ export class T3Client {
     this.connected = false;
     this.synced = false;
     this.descriptor = null;
-    this.origin = null;
     this.shell = emptyShell();
   }
 }

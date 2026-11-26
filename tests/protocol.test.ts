@@ -36,6 +36,9 @@ import {
   requestFrame,
   respondCommand,
   sessionsOf,
+  sessionsOfAll,
+  hostOf,
+  isLocalOrigin,
   socketUrl,
   stopCommand,
   subscribeShellPayload,
@@ -94,6 +97,39 @@ describe('finding the server', () => {
     expect(isInsecureOrigin('')).toBe(false);
   });
 
+  it('takes plain http for a Tailscale address, which WireGuard encrypts', () => {
+    for (const tailnet of [
+      'http://100.87.29.32:3773',
+      'http://100.64.0.1',
+      'http://100.127.255.255:1',
+      'http://[fd7a:115c:a1e0::1]:3773',
+      'http://[fd7a:115c:a1e0:ab12:4843:cd96:625b:1d20]',
+    ])
+      expect(cleanOrigin(tailnet)).toBe(tailnet);
+    // Next to the tailnet, but not in it.
+    for (const outside of [
+      'http://100.63.255.255',
+      'http://100.128.0.1',
+      'http://100.87.29.256',
+      'http://100.87.29.32.example.org',
+      'http://[fd7a:115c:a1e1::1]',
+    ]) {
+      expect(cleanOrigin(outside)).toBeNull();
+      expect(isInsecureOrigin(outside)).toBe(true);
+    }
+  });
+
+  it('tells this machine from others and names them by host', () => {
+    expect(isLocalOrigin('http://127.0.0.1:3773')).toBe(true);
+    expect(isLocalOrigin('http://localhost')).toBe(true);
+    expect(isLocalOrigin('http://[::1]:3773')).toBe(true);
+    expect(isLocalOrigin('http://100.87.29.32:3773')).toBe(false);
+    expect(isLocalOrigin('https://t3.example.org')).toBe(false);
+    expect(hostOf('http://100.87.29.32:3773')).toBe('100.87.29.32');
+    expect(hostOf('https://salaty.tail1234.ts.net')).toBe('salaty.tail1234.ts.net');
+    expect(hostOf('http://[fd7a:115c:a1e0::1]:3773')).toBe('[fd7a:115c:a1e0::1]');
+  });
+
   it('builds the addresses', () => {
     expect(socketUrl('http://127.0.0.1:3773', 'a b&c')).toBe(
       'ws://127.0.0.1:3773/ws?orchestrationProtocol=2&wsTicket=a%20b%26c',
@@ -110,6 +146,7 @@ describe('the version', () => {
   it('accepts the protocol it was written for', () => {
     const descriptor = decodeDescriptor(JSON.stringify(fixtures.descriptor()))!;
     expect(descriptor.environmentId).toBe(fixtures.ENVIRONMENT_ID);
+    expect(descriptor.label).toBe('mock');
     expect(descriptor.version).toBe(PROTOCOL_VERSION);
     expect(isCompatible(descriptor)).toBe(true);
     expect(subscribeShellPayload(descriptor)).toEqual({
@@ -124,6 +161,15 @@ describe('the version', () => {
     expect(old.version).toBeNull();
     expect(isCompatible(old)).toBe(false);
     expect(subscribeShellPayload(old)).toEqual({});
+  });
+
+  it('cleans the name of the machine', () => {
+    const named = (label: unknown) =>
+      decodeDescriptor(JSON.stringify({ environmentId: 'e', label }))!.label;
+    expect(named('salaty')).toBe('salaty');
+    expect(named(' my\u202Ebox\n ')).toBe('mybox');
+    expect(named(42)).toBe('');
+    expect(named('x'.repeat(100))).toHaveLength(40);
   });
 
   it('refuses a descriptor that is none', () => {
@@ -201,6 +247,31 @@ describe('sessions', () => {
     expect(sessions.map(s => s.project)).toEqual(['visor', 'visor', 'visor', 'visor']);
     expect(isWaiting(sessions[0]!)).toBe(true);
     expect(isWaiting(sessions[1]!)).toBe(false);
+  });
+
+  it('puts the sessions of several servers in one order and says where each is from', () => {
+    const here = shell();
+    const there = emptyShell();
+    applyShellItem(
+      there,
+      fixtures.snapshotItem([
+        fixtures.thread('remote-run', NOW, {
+          title: 'On another machine',
+          status: 'running',
+          activityRunStatus: 'running',
+          activityRunStartedAt: new Date(NOW - 1_000).toISOString(),
+        }),
+      ]),
+    );
+    const sessions = sessionsOfAll([here, there], NOW);
+    expect(sessions.map(s => [s.id, s.source])).toEqual([
+      ['thread-wait', 0],
+      ['remote-run', 1],
+      ['thread-run', 0],
+      ['thread-done', 0],
+      ['thread-error', 0],
+    ]);
+    expect(sessionsOfAll([], NOW)).toEqual([]);
   });
 
   it('lets the request of a subagent make its parent wait', () => {

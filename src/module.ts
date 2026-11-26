@@ -1,6 +1,8 @@
-// The agent sessions of the local T3 Code server as rows in "Now": what
+// The agent sessions of the paired T3 Code servers as rows in "Now": what
 // works, what finished, and above all what waits for an approval, which is
-// given right in the row. The protocol is in docs/protocol.md.
+// given right in the row. Several servers (this machine and others in the
+// tailnet) show in one list; a row of another machine says which. The
+// protocol is in docs/protocol.md.
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -17,6 +19,7 @@ import type {
 } from './visor/index.js';
 import { formatDuration, truncate } from './format.js';
 import { T3Client } from './client.js';
+import { SERVERS_KEY, TOKEN_SERIAL_KEY, carryOverPairing, serverList } from './pairing.js';
 import {
   APP_SCHEME,
   METHODS,
@@ -25,6 +28,7 @@ import {
   commandLines,
   fitsExpanded,
   fitsPreview,
+  isLocalOrigin,
   isWaiting,
   lastActive,
   launchPayload,
@@ -33,7 +37,7 @@ import {
   promptRetryMs,
   replyCommand,
   respondCommand,
-  sessionsOf,
+  sessionsOfAll,
   stopCommand,
   visibleSessions,
   type Prompt,
@@ -53,6 +57,15 @@ const ICONS: Record<Session['phase'], string> = {
   error: 'dialog-warning-symbolic',
 };
 
+/** A session and the server it runs on. */
+interface Shown extends Session {
+  /** Unique across the servers: `<origin> <thread id>`. */
+  key: string;
+  /** The key of what it waits for, `<origin> <request id>`; null when it waits for nothing. */
+  requestKey: string | null;
+  client: T3Client;
+}
+
 /** What an expanded row shows. Built once per thread and updated in place. */
 interface Details {
   expand: () => St.Widget;
@@ -65,6 +78,8 @@ interface Details {
 }
 
 const monotonicMs = (): number => GLib.get_monotonic_time() / 1000;
+/** Thread and request ids are the server's; with the origin in front they are unique across servers. */
+const keyOf = (client: T3Client, id: string): string => `${client.origin} ${id}`;
 
 class T3Module implements VisorModule {
   readonly id = 't3';
@@ -74,24 +89,25 @@ class T3Module implements VisorModule {
   readonly commands: Command[];
 
   private ctx: ModuleContext | null = null;
-  private client: T3Client | null = null;
-  private sessions: Session[] = [];
-  /** What an approval asks, by request id. Only what is known and not empty. */
+  /** One client per paired server, by origin, in the order of the settings. */
+  private clients = new Map<string, T3Client>();
+  private sessions: Shown[] = [];
+  /** What an approval asks, by request key. Only what is known and not empty. */
   private prompts = new Map<string, Prompt>();
   /** The requests whose command is asked for; the token tells an answer that came too late. */
   private asking = new Map<string, object>();
   /** Requests whose command could not be read: how often, and when to ask again (null: never). */
   private failures = new Map<string, { count: number; retryAt: number | null }>();
-  /** The request each row waits for, and since when on the monotonic clock. */
+  /** The request each row waits for, and since when on the monotonic clock; by session key. */
   private current = new Map<string, { id: string; since: number }>();
-  /** Requests the user answered and the server has not confirmed yet. */
+  /** Requests the user answered and the server has not confirmed yet, by request key. */
   private answered = new Set<string>();
-  /** Threads the user stopped and the server has not confirmed yet. */
+  /** Sessions the user stopped and the server has not confirmed yet, by session key. */
   private stopped = new Set<string>();
-  /** What went wrong with the last action, by thread id. */
+  /** What went wrong with the last action, by session key. */
   private errors = new Map<string, string>();
   private details = new Map<string, Details>();
-  /** Requests that already flashed. */
+  /** Requests that already flashed, by request key. */
   private announced = new Set<string>();
   private showAll = false;
   /** Ticks once per second while the panel is open and something runs. */
@@ -114,19 +130,34 @@ class T3Module implements VisorModule {
 
   enable(ctx: ModuleContext): void {
     this.ctx = ctx;
-    this.client = new T3Client(ctx.http, ctx.settings, () => this.safely(() => this.render()));
+    const settings = ctx.settings;
+    if (settings) {
+      carryOverPairing(settings);
+      settings.connectObject(
+        `changed::${SERVERS_KEY}`,
+        () => this.safely(() => this.syncClients()),
+        `changed::${TOKEN_SERIAL_KEY}`,
+        () =>
+          this.safely(() => {
+            const serial = settings.get_int(TOKEN_SERIAL_KEY);
+            for (const client of this.clients.values()) client.restart(serial);
+          }),
+        this,
+      );
+    }
     ctx.onOpenChanged(open =>
       this.safely(() => {
         if (!open) this.showAll = false;
         this.render();
       }),
     );
-    this.client.start();
+    this.syncClients();
   }
 
   disable(): void {
-    this.client?.stop();
-    this.client = null;
+    this.ctx?.settings?.disconnectObject(this);
+    for (const client of this.clients.values()) client.stop();
+    this.clients.clear();
     if (this.tickSource) GLib.source_remove(this.tickSource);
     if (this.expirySource) GLib.source_remove(this.expirySource);
     this.tickSource = this.expirySource = 0;
@@ -144,33 +175,75 @@ class T3Module implements VisorModule {
     this.ctx = null;
   }
 
+  /** One client per server of the settings: new ones start, removed ones stop. */
+  private syncClients(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const settings = ctx.settings;
+    const wanted = settings ? serverList(settings.get_strv(SERVERS_KEY)) : [];
+    const serial = settings?.get_int(TOKEN_SERIAL_KEY) ?? 0;
+    for (const [origin, client] of this.clients) {
+      if (wanted.includes(origin)) continue;
+      client.stop();
+      this.clients.delete(origin);
+    }
+    const clients = new Map<string, T3Client>();
+    for (const origin of wanted) {
+      let client = this.clients.get(origin);
+      if (!client) {
+        client = new T3Client(ctx.http, origin, () => this.safely(() => this.render()));
+        client.start(serial);
+      }
+      clients.set(origin, client);
+    }
+    this.clients = clients;
+    this.render();
+  }
+
+  /** What a row says about the machine of its server: nothing for this machine. */
+  private machineOf(client: T3Client): string {
+    return isLocalOrigin(client.origin) ? '' : client.label;
+  }
+
   // --- the command `t3 <text>` ---
 
   private resolve(args: string): Result[] {
     const ctx = this.ctx;
-    const client = this.client;
     const text = args.trim().slice(0, MAX_REPLY);
-    if (!ctx || !client?.connected || !text) return [];
+    if (!ctx || !text) return [];
     const _ = ctx.t;
-    const target = lastActive(client.shell);
-    if (!target) return [];
-    const name = truncate(target.title, 32) || _('Untitled thread');
+    // The thread that was active last, on whichever server.
+    let target: Session | null = null;
+    let client: T3Client | null = null;
+    for (const candidate of this.clients.values()) {
+      if (!candidate.connected) continue;
+      const last = lastActive(candidate.shell);
+      if (last && (!target || last.updatedAt > target.updatedAt)) {
+        target = last;
+        client = candidate;
+      }
+    }
+    if (!target || !client) return [];
+    const to = client;
+    const like = target;
+    const machine = this.machineOf(to);
+    const name = truncate(like.title, 32) || _('Untitled thread');
     const results: Result[] = [
       {
         id: 't3:send',
         icon: ICON,
         title: _('Send to %s').replace('%s', name),
-        subtitle: truncate(text, 80),
-        activate: () => this.reply(target.id, text),
+        subtitle: [machine, truncate(text, 80)].filter(Boolean).join(' · '),
+        activate: () => this.reply(to, like.id, text),
       },
     ];
-    if (target.launch) {
+    if (like.launch) {
       results.push({
         id: 't3:new',
         icon: ICON,
         title: _('Start a new thread'),
-        subtitle: [target.project, truncate(text, 80)].filter(Boolean).join(' · '),
-        activate: () => this.launch(target, text),
+        subtitle: [machine, like.project, truncate(text, 80)].filter(Boolean).join(' · '),
+        activate: () => this.launch(to, like, text),
       });
     }
     return results;
@@ -178,16 +251,16 @@ class T3Module implements VisorModule {
 
   // --- actions ---
 
-  /** Sends a command; a failure shows in the subtitle of the row. */
-  private send(threadId: string, promise: Promise<unknown>, undo?: () => void): void {
-    this.errors.delete(threadId);
+  /** Sends a command; a failure shows in the subtitle of the row with `key`. */
+  private send(key: string, promise: Promise<unknown>, undo?: () => void): void {
+    this.errors.delete(key);
     promise.then(
       () => undefined,
       (error: unknown) =>
         this.safely(() => {
           if (!this.ctx) return;
           undo?.();
-          this.errors.set(threadId, truncate(error instanceof Error ? error.message : '', 80));
+          this.errors.set(key, truncate(error instanceof Error ? error.message : '', 80));
           this.render();
         }),
     );
@@ -197,62 +270,54 @@ class T3Module implements VisorModule {
    * A click on Deny or Allow that was rendered for `requestId`. It counts only
    * while the row still waits for that request and has for a moment.
    */
-  private respond(
-    threadId: string,
-    requestId: string | null,
-    decision: 'accept' | 'decline',
-  ): void {
-    const session = this.sessions.find(s => s.id === threadId);
+  private respond(key: string, requestId: string | null, decision: 'accept' | 'decline'): void {
+    const session = this.sessions.find(s => s.key === key);
     if (session?.phase !== 'approval' || session.request?.id !== requestId) return;
     // Without the whole command on screen there was nothing to click.
-    const prompt = this.prompts.get(session.request.id);
+    const prompt = this.prompts.get(session.requestKey!);
     if (!prompt?.exact) return;
-    if (mayAnswer(this.current.get(threadId), requestId, monotonicMs()))
-      this.answer(session, decision);
+    if (mayAnswer(this.current.get(key), requestId, monotonicMs())) this.answer(session, decision);
   }
 
-  private answer(session: Session, decision: 'accept' | 'decline'): void {
-    const client = this.client;
+  private answer(session: Shown, decision: 'accept' | 'decline'): void {
     const request = session.request;
-    if (!client || !request) return;
+    const requestKey = session.requestKey;
+    if (!request || !requestKey) return;
     // Optimistic: the row runs again until the server says otherwise.
-    this.answered.add(request.id);
+    this.answered.add(requestKey);
     this.send(
-      session.id,
-      client.command(
+      session.key,
+      session.client.command(
         respondCommand(GLib.uuid_string_random(), request.threadId, request.id, decision),
       ),
-      () => this.answered.delete(request.id),
+      () => this.answered.delete(requestKey),
     );
     this.render();
   }
 
-  private reply(threadId: string, text: string): void {
-    const client = this.client;
-    if (!client || !text.trim()) return;
+  private reply(client: T3Client, threadId: string, text: string): void {
+    if (!text.trim()) return;
     const command = replyCommand(
       GLib.uuid_string_random(),
       GLib.uuid_string_random(),
       threadId,
       text,
     );
-    this.send(threadId, client.command(command));
+    this.send(keyOf(client, threadId), client.command(command));
     this.render();
   }
 
-  private stop(session: Session): void {
-    const client = this.client;
-    if (!client?.descriptor) return;
-    const command = stopCommand(GLib.uuid_string_random(), session, client.descriptor);
+  private stop(session: Shown): void {
+    const descriptor = session.client.descriptor;
+    if (!descriptor) return;
+    const command = stopCommand(GLib.uuid_string_random(), session, descriptor);
     if (!command) return;
-    this.stopped.add(session.id);
-    this.send(session.id, client.command(command), () => this.stopped.delete(session.id));
+    this.stopped.add(session.key);
+    this.send(session.key, session.client.command(command), () => this.stopped.delete(session.key));
     this.render();
   }
 
-  private launch(like: Session, text: string): void {
-    const client = this.client;
-    if (!client) return;
+  private launch(client: T3Client, like: Session, text: string): void {
     const payload = launchPayload(
       {
         commandId: GLib.uuid_string_random(),
@@ -262,14 +327,16 @@ class T3Module implements VisorModule {
       like,
       text,
     );
-    if (payload) this.send(like.id, client.request(METHODS.launchThread, payload));
+    if (payload) this.send(keyOf(client, like.id), client.request(METHODS.launchThread, payload));
   }
 
-  private openInApp(threadId: string): void {
+  private openInApp(session: Shown): void {
     // The desktop app when it is installed, the browser otherwise. The browser
-    // has a session of its own and asks for a pairing when it has none.
+    // has a session of its own and asks for a pairing when it has none. The
+    // link of the app names the environment, so it opens a thread of another
+    // machine too, as long as the app knows that machine.
     const app = Gio.AppInfo.get_default_for_uri_scheme(APP_SCHEME);
-    const link = (app && this.client?.appLink(threadId)) || this.client?.link(threadId);
+    const link = (app && session.client.appLink(session.id)) || session.client.link(session.id);
     this.ctx?.close();
     if (!link) return;
     try {
@@ -283,57 +350,85 @@ class T3Module implements VisorModule {
    * Asks what a request is about. An answer that fails, is too large or does
    * not say leaves the command unknown; it is asked for again a few times.
    */
-  private fetchPrompt(session: Session, now: number): void {
-    const client = this.client;
+  private fetchPrompt(session: Shown, now: number): void {
     const request = session.request;
-    if (!client || !request) return;
-    const requestId = request.id;
-    if (this.prompts.has(requestId) || this.asking.has(requestId)) return;
-    const failure = this.failures.get(requestId);
+    const requestKey = session.requestKey;
+    if (!request || !requestKey) return;
+    if (this.prompts.has(requestKey) || this.asking.has(requestKey)) return;
+    const failure = this.failures.get(requestKey);
     if (failure && (failure.retryAt === null || now < failure.retryAt)) return;
     const token = {};
-    this.asking.set(requestId, token);
+    this.asking.set(requestKey, token);
     const settle = (prompt: Prompt | null): void =>
       this.safely(() => {
         // Forgotten meanwhile, or asked again: this answer is nobody's.
-        if (!this.ctx || this.asking.get(requestId) !== token) return;
-        this.asking.delete(requestId);
+        if (!this.ctx || this.asking.get(requestKey) !== token) return;
+        this.asking.delete(requestKey);
         if (prompt) {
-          this.prompts.set(requestId, prompt);
-          this.failures.delete(requestId);
+          this.prompts.set(requestKey, prompt);
+          this.failures.delete(requestKey);
         } else {
-          const count = (this.failures.get(requestId)?.count ?? 0) + 1;
+          const count = (this.failures.get(requestKey)?.count ?? 0) + 1;
           const wait = promptRetryMs(count);
-          this.failures.set(requestId, {
+          this.failures.set(requestKey, {
             count,
             retryAt: wait === null ? null : Date.now() + wait,
           });
         }
         this.render();
       });
-    client.request(METHODS.getThreadProjection, { threadId: request.threadId }).then(
-      projection => settle(approvalPrompt(projection, requestId)),
+    session.client.request(METHODS.getThreadProjection, { threadId: request.threadId }).then(
+      projection => settle(approvalPrompt(projection, request.id)),
       () => settle(null),
     );
   }
 
   // --- what is shown ---
 
+  /**
+   * The sessions of all servers in one order. A server paired twice, under
+   * two addresses, shows once.
+   */
+  private collect(now: number): Shown[] {
+    const clients: T3Client[] = [];
+    const environments = new Set<string>();
+    for (const client of this.clients.values()) {
+      const environment = client.descriptor?.environmentId;
+      if (environment) {
+        if (environments.has(environment)) continue;
+        environments.add(environment);
+      }
+      clients.push(client);
+    }
+    return sessionsOfAll(
+      clients.map(client => client.shell),
+      now,
+    ).map(({ source, ...session }) => {
+      const client = clients[source]!;
+      return {
+        ...session,
+        key: keyOf(client, session.id),
+        requestKey: session.request ? keyOf(client, session.request.id) : null,
+        client,
+      };
+    });
+  }
+
   private render(): void {
     const ctx = this.ctx;
-    const client = this.client;
-    if (!ctx || !client) return;
+    if (!ctx) return;
     const _ = ctx.t;
     const now = Date.now();
-    this.sessions = sessionsOf(client.shell, now)
-      .filter(session => !this.stopped.has(session.id) || !session.runId)
+    const all = this.collect(now);
+    this.sessions = all
+      .filter(session => !this.stopped.has(session.key) || !session.runId)
       .map(session =>
         // An answered request: the session runs again, as far as Visor knows.
-        session.request && this.answered.has(session.request.id)
-          ? { ...session, phase: 'working' as const, request: null }
+        session.requestKey && this.answered.has(session.requestKey)
+          ? { ...session, phase: 'working' as const, request: null, requestKey: null }
           : session,
       );
-    this.forget(client);
+    this.forget(all);
 
     const waiting = this.sessions.filter(isWaiting);
     const since = monotonicMs();
@@ -341,15 +436,20 @@ class T3Module implements VisorModule {
       if (session.phase !== 'approval') continue;
       this.fetchPrompt(session, now);
       const requestId = session.request!.id;
-      if (this.current.get(session.id)?.id !== requestId)
-        this.current.set(session.id, { id: requestId, since });
+      if (this.current.get(session.key)?.id !== requestId)
+        this.current.set(session.key, { id: requestId, since });
     }
 
     if (this.sessions.length === 0) {
       ctx.now.clear();
     } else {
       const { shown, more } = visibleSessions(this.sessions, this.showAll);
-      const rows = shown.map(session => this.row(session, now));
+      // A thread id names a row; only a thread id that two servers share needs the server too.
+      const counts = new Map<string, number>();
+      for (const session of shown) counts.set(session.id, (counts.get(session.id) ?? 0) + 1);
+      const rows = shown.map(session =>
+        this.row(session, now, counts.get(session.id)! > 1 ? session.key : session.id),
+      );
       if (more > 0) {
         rows.push({
           id: MORE_ID,
@@ -371,32 +471,46 @@ class T3Module implements VisorModule {
     ctx.attention(first ? 'waiting' : null);
     const flash = ctx.settings?.get_boolean(FLASH_KEY) ?? true;
     for (const session of waiting) {
-      const requestId = session.request!.id;
-      if (this.announced.has(requestId)) continue;
-      this.announced.add(requestId);
+      const requestKey = session.requestKey!;
+      if (this.announced.has(requestKey)) continue;
+      this.announced.add(requestKey);
       if (flash) ctx.peek.flash(this.chip(session));
     }
 
     this.schedule(now);
   }
 
-  /** Drops what belongs to requests and threads the server no longer has. */
-  private forget(client: T3Client): void {
+  /** Drops what belongs to requests and threads the servers no longer have. */
+  private forget(sessions: Shown[]): void {
     const prune = <K>(collection: Map<K, unknown> | Set<K>, keep: (key: K) => boolean): void => {
       for (const key of [...collection.keys()]) if (!keep(key)) collection.delete(key);
     };
-    const sessions = sessionsOf(client.shell, 0);
+    // Every request a server still has, those of subagents too.
     const requests = new Set<string>();
-    for (const session of sessions) if (session.request) requests.add(session.request.id);
-    const asked = (requestId: string): boolean => requests.has(requestId);
+    for (const client of this.clients.values()) {
+      for (const thread of client.shell.threads.values())
+        if (thread.request) requests.add(keyOf(client, thread.request.id));
+    }
+    for (const session of sessions) if (session.requestKey) requests.add(session.requestKey);
+    const asked = (requestKey: string): boolean => requests.has(requestKey);
     for (const map of [this.prompts, this.answered, this.announced]) prune(map, asked);
     // What failed is remembered across a connection that broke, or a projection
-    // that breaks it would be asked for on every new one.
-    if (client.synced) for (const map of [this.asking, this.failures]) prune(map, asked);
-    const shown = new Set(this.sessions.map(session => session.id));
-    for (const map of [this.current, this.details]) prune(map, id => shown.has(id));
-    prune(this.errors, id => client.shell.threads.has(id));
-    prune(this.stopped, id => sessions.some(s => s.id === id && s.runId));
+    // that breaks it would be asked for on every new one. So only a server
+    // that has said what it has forgets.
+    const synced = (key: string): boolean => {
+      const client = this.clients.get(key.slice(0, key.indexOf(' ')));
+      return client?.synced ?? true;
+    };
+    for (const map of [this.asking, this.failures])
+      prune(map, requestKey => asked(requestKey) || !synced(requestKey));
+    const shown = new Set(this.sessions.map(session => session.key));
+    for (const map of [this.current, this.details]) prune(map, key => shown.has(key));
+    const threads = (key: string): boolean => {
+      const at = key.indexOf(' ');
+      return this.clients.get(key.slice(0, at))?.shell.threads.has(key.slice(at + 1)) ?? false;
+    };
+    prune(this.errors, threads);
+    prune(this.stopped, key => sessions.some(s => s.key === key && s.runId));
   }
 
   private chip(session: Session): PeekChip {
@@ -410,7 +524,7 @@ class T3Module implements VisorModule {
     };
   }
 
-  private state(session: Session, now: number): string {
+  private state(session: Shown, now: number): string {
     const _ = this.ctx!.t;
     switch (session.phase) {
       case 'starting':
@@ -435,25 +549,27 @@ class T3Module implements VisorModule {
   }
 
   /** True when asking what an approval is about has failed and nothing is known. */
-  private isUnknown(session: Session): boolean {
-    const requestId = session.request?.id;
-    return requestId !== undefined && !this.prompts.has(requestId) && this.failures.has(requestId);
+  private isUnknown(session: Shown): boolean {
+    const requestKey = session.requestKey;
+    return requestKey !== null && !this.prompts.has(requestKey) && this.failures.has(requestKey);
   }
 
-  private row(session: Session, now: number): NowRow {
+  private row(session: Shown, now: number, id: string): NowRow {
     const _ = this.ctx!.t;
-    const error = this.errors.get(session.id);
+    const error = this.errors.get(session.key);
     const state = error ? `${_('Could not send')} · ${error}` : this.state(session, now);
     const row: NowRow = {
-      id: `t3:${session.id}`,
+      id: `t3:${id}`,
       icon: ICONS[session.phase],
       title: session.title || _('Untitled thread'),
-      subtitle: [session.project, state].filter(Boolean).join(' · '),
+      subtitle: [this.machineOf(session.client), session.project, state]
+        .filter(Boolean)
+        .join(' · '),
       expand: this.detailsOf(session).expand,
     };
     if (session.phase === 'approval') {
       const requestId = session.request!.id;
-      const prompt = this.prompts.get(requestId);
+      const prompt = this.prompts.get(session.requestKey!);
       const waiting: NowRow = {
         ...row,
         status: 'waiting',
@@ -470,7 +586,7 @@ class T3Module implements VisorModule {
           primary: {
             label: _('Open in T3 Code'),
             style: 'primary',
-            run: () => this.openInApp(session.id),
+            run: () => this.openInApp(session),
           },
         };
       }
@@ -481,13 +597,13 @@ class T3Module implements VisorModule {
           {
             label: _('Deny'),
             style: 'ghost',
-            run: () => this.respond(session.id, requestId, 'decline'),
+            run: () => this.respond(session.key, requestId, 'decline'),
           },
         ],
         primary: {
           label: _('Allow'),
           style: 'primary',
-          run: () => this.respond(session.id, requestId, 'accept'),
+          run: () => this.respond(session.key, requestId, 'accept'),
         },
       };
     }
@@ -495,25 +611,25 @@ class T3Module implements VisorModule {
       return {
         ...row,
         status: 'waiting',
-        primary: { label: _('Answer'), style: 'primary', run: () => this.openInApp(session.id) },
+        primary: { label: _('Answer'), style: 'primary', run: () => this.openInApp(session) },
       };
     }
     return session.phase === 'done' ? { ...row, status: 'done' } : row;
   }
 
   /** The function that builds the expanded part; the same one for the life of the row. */
-  private detailsOf(session: Session): Details {
-    const threadId = session.id;
-    let details = this.details.get(threadId);
+  private detailsOf(session: Shown): Details {
+    const key = session.key;
+    let details = this.details.get(key);
     if (!details) {
       const created: Details = {
         message: null,
         stop: null,
         requestId: null,
         showCommand: null,
-        expand: () => this.buildDetails(threadId, created),
+        expand: () => this.buildDetails(key, created),
       };
-      this.details.set(threadId, (details = created));
+      this.details.set(key, (details = created));
     }
     if (details.message) {
       details.message.text = session.lastMessage;
@@ -526,15 +642,16 @@ class T3Module implements VisorModule {
   }
 
   /** The command a session waits for, null when it waits for none or it is not known. */
-  private promptOf(session: Session | undefined): Prompt | null {
-    if (session?.phase !== 'approval' || !session.request) return null;
-    return this.prompts.get(session.request.id) ?? null;
+  private promptOf(session: Shown | undefined): Prompt | null {
+    if (session?.phase !== 'approval' || !session.requestKey) return null;
+    return this.prompts.get(session.requestKey) ?? null;
   }
 
-  private buildDetails(threadId: string, details: Details): St.Widget {
+  private buildDetails(key: string, details: Details): St.Widget {
     const ctx = this.ctx!;
     const _ = ctx.t;
-    const session = this.sessions.find(s => s.id === threadId);
+    const session = this.sessions.find(s => s.key === key);
+    const current = (): Shown | undefined => this.sessions.find(s => s.key === key);
     const box = new St.BoxLayout({
       style_class: 'visor-t3-details',
       orientation: Clutter.Orientation.VERTICAL,
@@ -571,7 +688,7 @@ class T3Module implements VisorModule {
     // it has been looked at there are no buttons.
     const answers = new St.BoxLayout({ style_class: 'visor-t3-buttons', visible: false });
     const respond = (decision: 'accept' | 'decline'): void => {
-      if (answers.visible) this.respond(threadId, details.requestId, decision);
+      if (answers.visible) this.respond(key, details.requestId, decision);
     };
     answers.add_child(
       ctx.kit.button({ label: _('Deny'), style: 'ghost', run: () => respond('decline') }),
@@ -634,7 +751,8 @@ class T3Module implements VisorModule {
         const text = entry.get_text().trim();
         if (!text) return;
         entry.set_text('');
-        this.reply(threadId, text);
+        const target = current();
+        if (target) this.reply(target.client, target.id, text);
       }),
     );
     box.add_child(entry);
@@ -644,8 +762,8 @@ class T3Module implements VisorModule {
       label: _('Stop'),
       style: 'ghost',
       run: () => {
-        const current = this.sessions.find(s => s.id === threadId);
-        if (current) this.stop(current);
+        const target = current();
+        if (target) this.stop(target);
       },
     });
     stop.visible = Boolean(session?.runId);
@@ -654,7 +772,10 @@ class T3Module implements VisorModule {
       ctx.kit.button({
         label: _('Open in T3 Code'),
         style: 'ghost',
-        run: () => this.openInApp(threadId),
+        run: () => {
+          const target = current();
+          if (target) this.openInApp(target);
+        },
       }),
     );
     box.add_child(buttons);
